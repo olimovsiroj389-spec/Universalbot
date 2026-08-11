@@ -18,6 +18,8 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
     InlineQueryResultArticle,
     InputTextMessageContent,
 )
@@ -151,6 +153,26 @@ def init_db():
     """)
 
     cur.execute("""
+    CREATE TABLE IF NOT EXISTS bot_config(
+        key TEXT PRIMARY KEY,
+        value TEXT DEFAULT ''
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS vip_users(
+        user_id INTEGER PRIMARY KEY,
+        expires_at TEXT DEFAULT ''
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS blocked_users(
+        user_id INTEGER PRIMARY KEY
+    )
+    """)
+
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS stats(
         day TEXT PRIMARY KEY,
         users INTEGER DEFAULT 0,
@@ -231,6 +253,83 @@ def bump_message_stat():
     con.commit()
     con.close()
 
+
+# ============================================================
+# BOT CONFIG / ACCESS
+# ============================================================
+
+def get_config(key, default=""):
+    con=db()
+    row=con.execute("SELECT value FROM bot_config WHERE key=?",(key,)).fetchone()
+    con.close()
+    return row[0] if row else default
+
+def set_config(key, value):
+    con=db()
+    con.execute("INSERT OR REPLACE INTO bot_config(key,value) VALUES(?,?)",(key,str(value)))
+    con.commit(); con.close()
+
+def is_admin_user(user_id):
+    admins=os.getenv("ADMIN_IDS", str(ADMIN_ID)).replace(" ","")
+    try:
+        return int(user_id) in {int(x) for x in admins.split(",") if x}
+    except Exception:
+        return user_id == ADMIN_ID
+
+def home_reply_kb(user_id=None):
+    rows=[
+        [KeyboardButton("🤖 AI"),KeyboardButton("📥 Downloader")],
+        [KeyboardButton("🎵 Musiqa"),KeyboardButton("🖼 Media")],
+        [KeyboardButton("🎮 O'yinlar"),KeyboardButton("💰 Hamyon")],
+        [KeyboardButton("🛠 Tools"),KeyboardButton("🔎 Qidiruv")],
+        [KeyboardButton("👥 Guruh"),KeyboardButton("🎁 Bonus")],
+        [KeyboardButton("👑 VIP"),KeyboardButton("⚙️ Sozlamalar")],
+        [KeyboardButton("👤 Profil"),KeyboardButton("ℹ️ Yordam")],
+    ]
+    if user_id is not None and is_admin_user(user_id):
+        rows.append([KeyboardButton("👑 Botni boshqarish")])
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True)
+
+def admin_reply_kb():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton("📊 Statistika"),KeyboardButton("📢 Reklama")],
+        [KeyboardButton("📣 Majburiy obuna"),KeyboardButton("👑 VIP sozlash")],
+        [KeyboardButton("👥 User boshqaruv"),KeyboardButton("📝 Start qismi")],
+        [KeyboardButton("⚙️ Bot sozlamalari"),KeyboardButton("🔙 Bosh menyu")],
+    ], resize_keyboard=True, is_persistent=True)
+
+async def subscription_status(bot, user_id):
+    channel_id=get_config("force_channel_id")
+    if not channel_id:
+        return True
+    try:
+        m=await bot.get_chat_member(int(channel_id), user_id)
+        return m.status in (ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER)
+    except Exception as e:
+        log.warning("Force subscription check: %s", e)
+        return False
+
+async def require_subscription(update, context):
+    user=update.effective_user
+    if not user or is_admin_user(user.id):
+        return True
+    if await subscription_status(context.bot,user.id):
+        return True
+    link=get_config("force_channel_link")
+    if not link:
+        username=get_config("force_channel_username")
+        if username:
+            link="https://t.me/"+username.lstrip("@")
+    buttons=[]
+    if link:
+        buttons.append([InlineKeyboardButton("📣 Kanalga obuna bo'lish",url=link)])
+    buttons.append([InlineKeyboardButton("🔄 Tekshirish",callback_data="check_subscription")])
+    text="📣 <b>Majburiy obuna</b>\n\nBotdan foydalanish uchun kanalga obuna bo'ling."
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text,parse_mode="HTML",reply_markup=InlineKeyboardMarkup(buttons))
+    elif update.effective_message:
+        await update.effective_message.reply_text(text,parse_mode="HTML",reply_markup=InlineKeyboardMarkup(buttons))
+    return False
 
 # ============================================================
 # COMMON UI
@@ -599,12 +698,16 @@ async def download_media(url):
 async def start(update, context):
     ensure_user(update.effective_user)
     context.user_data.clear()
-    await update.message.reply_text(
-        f"😈 <b>HAMMASI BIRDA BOT</b>\n\n"
+    if not await require_subscription(update,context):
+        return
+    start_text=get_config("start_text") or (
+        "😈 <b>HAMMASI BIRDA BOT</b>\n\n"
         f"Salom, <b>{update.effective_user.first_name}</b>!\n"
-        "👇 Kerakli xizmatni tanlang:",
-        parse_mode="HTML",
-        reply_markup=home_kb()
+        "👇 Kerakli xizmatni tanlang:"
+    )
+    await update.message.reply_text(
+        start_text, parse_mode="HTML",
+        reply_markup=home_reply_kb(update.effective_user.id)
     )
 
 async def help_cmd(update, context):
@@ -630,6 +733,14 @@ async def cb(update, context):
     user = update.effective_user
     ensure_user(user)
     d = q.data
+    if d == "check_subscription":
+        if await subscription_status(context.bot,user.id):
+            await q.edit_message_text("✅ Obuna tasdiqlandi! /start ni bosing.")
+        else:
+            await require_subscription(update,context)
+        return
+    if d != "home" and not await require_subscription(update,context):
+        return
 
     if d == "home":
         context.user_data.clear()
@@ -916,12 +1027,13 @@ async def cb(update, context):
 
     # ---------------- VIP ----------------
     if d=="menu_vip":
+        enabled=get_config("vip_enabled","1")=="1"
+        price=get_config("vip_price","1000")
+        days=get_config("vip_days","30")
         await q.edit_message_text(
             "👑 <b>VIP</b>\n\n"
-            "VIP uchun joy tayyor. To'lov providerini keyin ulaymiz.\n\n"
-            "VIP imkoniyatlari:\n"
-            "⚡ AI limit\n📥 kengaytirilgan downloader\n"
-            "🎵 premium music\n🛠 premium tools",
+            + (f"💰 Narx: <b>{price} 🪙</b>\n📅 Muddat: <b>{days} kun</b>\n\n" if enabled else "❌ VIP hozircha o'chirilgan.\n\n")
+            + "VIP imkoniyatlari:\n⚡ AI limit\n📥 kengaytirilgan downloader\n🎵 premium music\n🛠 premium tools",
             parse_mode="HTML",reply_markup=back()
         ); return
 
@@ -1065,6 +1177,43 @@ async def group_guard(update,context):
             pass
 
 
+async def text_menu_dispatch(update,context,d):
+    # Reply-keyboard main menu -> existing inline callback router logic.
+    class Q: pass
+    # Use a lightweight synthetic callback object by duplicating only the main-menu screens.
+    screens={
+        "menu_ai":("🤖 <b>AI MARKAZI</b>\n\nFunksiyani tanlang:",ai_kb()),
+        "menu_dl":("📥 <b>DOWNLOADER</b>\n\nPlatformani tanlang yoki Universal URLni bosing:",dl_kb()),
+        "menu_music":("🎵 <b>MUSIQA MARKAZI</b>\n\nFunksiyani tanlang:",music_kb()),
+        "menu_media":("🖼 <b>MEDIA MARKAZI</b>\n\nOperatsiyani tanlang, keyin rasm yuboring:",media_kb()),
+        "menu_games":("🎮 <b>O'YINLAR</b>\n\nO'yinni tanlang:",games_kb()),
+        "menu_tools":("🛠 <b>TOOLS MARKAZI</b>\n\nKerakli vositani tanlang:",tools_kb()),
+        "menu_search":("🔎 <b>QIDIRUV</b>\n\nInline rejimdan foydalaning:\n<code>@BotUsername 25+35</code>",back()),
+        "menu_group":("👥 <b>GURUH BOSHQARUVI</b>\n\nBot guruhda admin bo'lsa moderatsiya funksiyalari ishlaydi.",group_kb()),
+        "menu_settings":("⚙️ <b>SOZLAMALAR</b>\n\nTanlang:",settings_kb()),
+    }
+    if d in screens:
+        text,markup=screens[d]
+        await update.message.reply_text(text,parse_mode="HTML",reply_markup=markup)
+        return
+    if d=="profile":
+        r=user_row(update.effective_user.id)
+        await update.message.reply_text(f"👤 <b>PROFIL</b>\n\n🆔 ID: <code>{r[0]}</code>\n👤 Ism: {r[2]}\n🔗 Username: @{r[1] or 'yo‘q'}\n🪙 Coin: {r[3]}\n⭐ XP: {r[4]}\n🏆 Level: {r[5]}",parse_mode="HTML",reply_markup=back())
+        return
+    if d=="help":
+        await update.message.reply_text("ℹ️ <b>YORDAM</b>\n\nTugmani bosasiz → bot kerakli ma'lumotni so'raydi → natijani qaytaradi.",parse_mode="HTML",reply_markup=home_kb())
+        return
+    if d=="bonus":
+        r=user_row(update.effective_user.id); today=date.today().isoformat()
+        if r[6]==today:
+            await update.message.reply_text("🎁 Bugungi bonusni allaqachon olgansiz.",reply_markup=home_reply_kb(update.effective_user.id)); return
+        con=db(); con.execute("UPDATE users SET coins=coins+100,xp=xp+10,last_bonus=? WHERE user_id=?",(today,update.effective_user.id)); con.commit(); con.close()
+        await update.message.reply_text("🎁 <b>BONUS OLINDI!</b>\n\n🪙 +100 Coin\n⭐ +10 XP",parse_mode="HTML",reply_markup=home_reply_kb(update.effective_user.id))
+        return
+    if d=="menu_wallet":
+        r=user_row(update.effective_user.id)
+        await update.message.reply_text(f"💰 <b>HAMYON</b>\n\n🪙 Coin: <b>{r[3]}</b>\n⭐ XP: <b>{r[4]}</b>\n🏆 Level: <b>{r[5]}</b>",parse_mode="HTML",reply_markup=back())
+
 # ============================================================
 # TEXT ROUTER
 # ============================================================
@@ -1074,9 +1223,45 @@ async def text_router(update,context):
         return
     user=update.effective_user
     ensure_user(user)
+    if not await require_subscription(update,context):
+        return
     bump_message_stat()
     text=(update.message.text or "").strip()
     mode=context.user_data.get("mode")
+
+    # Resize reply keyboard main menu
+    main_routes={
+        "🤖 AI":"menu_ai","📥 Downloader":"menu_dl","🎵 Musiqa":"menu_music",
+        "🖼 Media":"menu_media","🎮 O'yinlar":"menu_games","💰 Hamyon":"menu_wallet",
+        "🛠 Tools":"menu_tools","🔎 Qidiruv":"menu_search","👥 Guruh":"menu_group",
+        "🎁 Bonus":"bonus","👑 VIP":"menu_vip","⚙️ Sozlamalar":"menu_settings",
+        "👤 Profil":"profile","ℹ️ Yordam":"help"
+    }
+    if text == "👑 Botni boshqarish":
+        if is_admin_user(user.id):
+            context.user_data["admin_panel"]=True
+            context.user_data.pop("mode",None)
+            await update.message.reply_text("👑 <b>ADMIN PANEL</b>\n\nKerakli bo'limni tanlang:",parse_mode="HTML",reply_markup=admin_reply_kb())
+        return
+    if text == "🔙 Bosh menyu" and context.user_data.get("admin_panel"):
+        context.user_data.clear()
+        await update.message.reply_text("🏠 <b>BOSH MENYU</b>\n\nBo'limni tanlang:",parse_mode="HTML",reply_markup=home_reply_kb(user.id))
+        return
+    if context.user_data.get("admin_panel"):
+        if not is_admin_user(user.id):
+            context.user_data.clear(); return
+        await admin_text_router(update,context,text)
+        return
+    if text in main_routes:
+        d=main_routes[text]
+        if d=="bonus":
+            # Let the existing callback logic handle bonus consistently.
+            await update.message.reply_text("🎁 Bonusni olish uchun tugmani qayta bosing yoki /start orqali menyuni oching.")
+            return
+        fake_data=d
+        # Directly reproduce the callback by routing through a tiny helper.
+        await text_menu_dispatch(update,context,fake_data)
+        return
 
     # Guess
     if "guess" in context.user_data and text.isdigit():
@@ -1302,7 +1487,7 @@ async def text_router(update,context):
 
     await update.message.reply_text(
         "😈 Menyudan funksiya tanlang.",
-        reply_markup=home_kb()
+        reply_markup=home_reply_kb(user.id)
     )
 
 
@@ -1414,6 +1599,15 @@ async def inline(update,context):
 # ADMIN
 # ============================================================
 
+async def admin_cmd(update,context):
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("⛔ Ruxsat yo'q.")
+        return
+    context.user_data["admin_panel"]=True
+    context.user_data.pop("admin_mode",None)
+    await update.message.reply_text("👑 <b>ADMIN PANEL</b>\n\nKerakli bo'limni tanlang:",parse_mode="HTML",reply_markup=admin_reply_kb())
+
+
 async def adminstats(update,context):
     if not ADMIN_ID or update.effective_user.id!=ADMIN_ID:
         await update.message.reply_text("⛔ Ruxsat yo'q."); return
@@ -1430,6 +1624,89 @@ async def adminstats(update,context):
         parse_mode="HTML"
     )
 
+
+async def admin_text_router(update,context,text):
+    user=update.effective_user
+    mode=context.user_data.get("admin_mode")
+    if mode=="broadcast":
+        context.user_data.pop("admin_mode",None)
+        con=db(); ids=[r[0] for r in con.execute("SELECT user_id FROM users").fetchall()]; con.close()
+        ok=0
+        for uid in ids:
+            try:
+                await context.bot.send_message(uid,text)
+                ok+=1
+            except Exception:
+                pass
+            await asyncio.sleep(0.03)
+        await update.message.reply_text(f"📢 Reklama tugadi.\n✅ Yuborildi: {ok}/{len(ids)}",reply_markup=admin_reply_kb())
+        return
+    if mode=="force_channel":
+        parts=text.split("|",1)
+        channel=parts[0].strip(); link=parts[1].strip() if len(parts)>1 else ""
+        try:
+            chat=await context.bot.get_chat(channel)
+            me=await context.bot.get_chat_member(chat.id,context.bot.id)
+            if me.status not in (ChatMemberStatus.ADMINISTRATOR,ChatMemberStatus.OWNER):
+                await update.message.reply_text("❌ Bot kanalga admin qilib qo'yilmagan.",reply_markup=admin_reply_kb()); return
+            username=(chat.username or "").strip("@")
+            set_config("force_channel_id",chat.id); set_config("force_channel_username",username); set_config("force_channel_link",link or ("https://t.me/"+username if username else ""))
+            context.user_data.pop("admin_mode",None)
+            await update.message.reply_text(f"✅ Majburiy obuna ulandi: <b>{chat.title}</b>",parse_mode="HTML",reply_markup=admin_reply_kb())
+        except Exception as e:
+            await update.message.reply_text(f"❌ Kanalni ulab bo'lmadi: {str(e)[:300]}",reply_markup=admin_reply_kb())
+        return
+    if mode=="start_text":
+        set_config("start_text",text); context.user_data.pop("admin_mode",None)
+        await update.message.reply_text("✅ Start matni saqlandi.",reply_markup=admin_reply_kb()); return
+    if mode=="vip_price":
+        try: price=max(0,int(text)); set_config("vip_price",price); context.user_data.pop("admin_mode",None); await update.message.reply_text(f"✅ VIP narxi: {price} 🪙",reply_markup=admin_reply_kb())
+        except: await update.message.reply_text("❌ Faqat raqam kiriting.",reply_markup=admin_reply_kb())
+        return
+    if mode=="vip_days":
+        try: days=max(1,int(text)); set_config("vip_days",days); context.user_data.pop("admin_mode",None); await update.message.reply_text(f"✅ VIP muddati: {days} kun",reply_markup=admin_reply_kb())
+        except: await update.message.reply_text("❌ Faqat raqam kiriting.",reply_markup=admin_reply_kb())
+        return
+    if mode=="user_lookup":
+        try: uid=int(text); r=user_row(uid)
+        except: r=None
+        if not r: await update.message.reply_text("❌ User topilmadi.",reply_markup=admin_reply_kb()); return
+        context.user_data.pop("admin_mode",None)
+        await update.message.reply_text(f"👤 <b>USER</b>\n\nID: <code>{r[0]}</code>\nUsername: @{r[1] or 'yo‘q'}\nIsm: {r[2]}\n🪙 Coin: {r[3]}\n⭐ XP: {r[4]}\n🏆 Level: {r[5]}",parse_mode="HTML",reply_markup=admin_reply_kb()); return
+
+    if text=="📊 Statistika":
+        await adminstats(update,context); return
+    if text=="📢 Reklama":
+        context.user_data["admin_mode"]="broadcast"
+        await update.message.reply_text("📢 Barcha userlarga yuboriladigan xabarni yozing:",reply_markup=admin_reply_kb()); return
+    if text=="📣 Majburiy obuna":
+        current=get_config("force_channel_username") or get_config("force_channel_id") or "ulanmagan"
+        await update.message.reply_text(f"📣 <b>MAJBURIY OBUNA</b>\n\nHozirgi kanal: <b>{current}</b>\n\nKanalni ulang:\n<code>@kanal_username</code>\nyoki private kanal uchun:\n<code>-100123456789|https://t.me/+invite</code>",parse_mode="HTML",reply_markup=admin_reply_kb())
+        context.user_data["admin_mode"]="force_channel"; return
+    if text=="👑 VIP sozlash":
+        price=get_config("vip_price","1000"); days=get_config("vip_days","30"); enabled=get_config("vip_enabled","1")
+        await update.message.reply_text(f"👑 <b>VIP SOZLAMALARI</b>\n\nHolat: {'✅ Yoqilgan' if enabled=='1' else '❌ O‘chirilgan'}\n💰 Narx: {price} 🪙\n📅 Muddat: {days} kun",parse_mode="HTML",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💰 Narx",callback_data="admin_vip_price"),InlineKeyboardButton("📅 Muddat",callback_data="admin_vip_days")],[InlineKeyboardButton("🔄 ON/OFF",callback_data="admin_vip_toggle")]])); return
+    if text=="👥 User boshqaruv":
+        context.user_data["admin_mode"]="user_lookup"
+        await update.message.reply_text("👥 User ID yuboring:",reply_markup=admin_reply_kb()); return
+    if text=="📝 Start qismi":
+        current=get_config("start_text") or "Standart start matni"
+        await update.message.reply_text("📝 <b>START QISMI</b>\n\nHozirgi matn:\n"+current+"\n\nYangi start matnini yuboring:",parse_mode="HTML",reply_markup=admin_reply_kb()); context.user_data["admin_mode"]="start_text"; return
+    if text=="⚙️ Bot sozlamalari":
+        await update.message.reply_text("⚙️ <b>BOT SOZLAMALARI</b>\n\nAdmin panel orqali asosiy sozlamalar boshqariladi.",parse_mode="HTML",reply_markup=admin_reply_kb()); return
+
+async def admin_callback(update,context):
+    q=update.callback_query; await q.answer()
+    if not is_admin_user(q.from_user.id): return
+    if q.data=="admin_vip_toggle":
+        v="0" if get_config("vip_enabled","1")=="1" else "1"; set_config("vip_enabled",v)
+        await q.edit_message_text(f"👑 VIP: {'✅ YOQILDI' if v=='1' else '❌ O‘CHIRILDI'}")
+    elif q.data=="admin_vip_price":
+        context.user_data["admin_mode"]="vip_price"
+        await q.edit_message_text("💰 Yangi VIP narxini yuboring:")
+    elif q.data=="admin_vip_days":
+        context.user_data["admin_mode"]="vip_days"
+        await q.edit_message_text("📅 VIP muddatini kunlarda yuboring:")
 
 # ============================================================
 # ERROR / MAIN
@@ -1448,8 +1725,10 @@ def main():
 
     app.add_handler(CommandHandler("start",start))
     app.add_handler(CommandHandler("help",help_cmd))
+    app.add_handler(CommandHandler("admin",admin_cmd))
     app.add_handler(CommandHandler("adminstats",adminstats))
     app.add_handler(InlineQueryHandler(inline))
+    app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^admin_vip_"))
     app.add_handler(CallbackQueryHandler(cb))
 
     app.add_handler(MessageHandler(
