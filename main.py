@@ -54,12 +54,11 @@ from telegram.ext import (
 # deep-translator
 # ============================================================
 
-TOKEN = os.getenv("BOT_TOKEN", "").strip()
-ADMIN_ID = int(os.getenv("ADMIN_ID", "8824266579") or 0)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-
+TOKEN = "8797534923:AAHX89hOt0p_coeYN7LYPK5IEE6-tok5_eg"
+ADMIN_ID = 8824266579
+OPENAI_API_KEY = "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"
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-MUSIC_API_KEY = os.getenv("MUSIC_API_KEY", "")
+MUSIC_API_KEY = "AIzaSyBCjO4wBBcQkI9Q66bqKmhJWJHz-cMzH9Q"
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
 DB_FILE = os.getenv("DB_FILE", "hammasi_birda.db")
 
