@@ -1,5 +1,7 @@
-python-telegram-bot
+python-telegram-bot>=21,<23
 aiohttp
-requests
-python-dotenv
+Pillow
+qrcode[pil]
 yt-dlp
+deep-translator
+pytesseract
