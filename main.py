@@ -9,9 +9,11 @@ import secrets
 import string
 import sqlite3
 import logging
+import shutil
 import asyncio
 import operator as op
 from datetime import datetime, date
+from html import escape
 from urllib.parse import quote_plus
 
 from telegram import (
@@ -691,6 +693,47 @@ async def download_media(url):
     return await asyncio.to_thread(worker)
 
 
+async def download_audio(url):
+    """YouTube URLdan audio yuklaydi; ffmpeg bo'lsa MP3ga aylantiradi."""
+    if yt_dlp is None:
+        raise RuntimeError("yt-dlp o'rnatilmagan.")
+    os.makedirs("downloads", exist_ok=True)
+
+    template = os.path.join("downloads", "%(title).70s-%(id)s.%(ext)s")
+    has_ffmpeg = shutil.which("ffmpeg") is not None
+
+    opts = {
+        "outtmpl": template,
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "restrictfilenames": True,
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
+        "max_filesize": 49 * 1024 * 1024,
+    }
+
+    if has_ffmpeg:
+        opts["postprocessors"] = [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }]
+
+    def worker():
+        with yt_dlp.YoutubeDL(opts) as y:
+            info = y.extract_info(url, download=True)
+            filename = y.prepare_filename(info)
+            title = info.get("title", "Musiqa")
+            artist = info.get("artist") or info.get("uploader") or ""
+
+            if has_ffmpeg:
+                filename = os.path.splitext(filename)[0] + ".mp3"
+
+            return filename, title, artist
+
+    return await asyncio.to_thread(worker)
+
+
 # ============================================================
 # START / HELP
 # ============================================================
@@ -704,6 +747,18 @@ async def start(update, context):
         "😈 <b>HAMMASI BIRDA BOT</b>\n\n"
         f"Salom, <b>{update.effective_user.first_name}</b>!\n"
         "👇 Kerakli xizmatni tanlang:"
+    )
+    # Admin panelda yozilgan o'zgaruvchilarni user ma'lumotlari bilan almashtirish.
+    u = update.effective_user
+    name = escape(u.first_name or "Foydalanuvchi")
+    username = escape(f"@{u.username}") if u.username else ""
+    mention = f'<a href="tg://user?id={u.id}">{name}</a>'
+    start_text = (
+        start_text
+        .replace("{name}", name)
+        .replace("{username}", username)
+        .replace("{id}", str(u.id))
+        .replace("{mention}", mention)
     )
     await update.message.reply_text(
         start_text, parse_mode="HTML",
@@ -1461,28 +1516,88 @@ async def text_router(update,context):
         return
 
     if mode == "music_audio":
-        results = await ytm_search_api(text, "songs", 1)
-        if not results:
-            results = await music_search_api(text, 1)
-        if not results:
-            await update.message.reply_text("❌ Qo'shiq topilmadi.", reply_markup=music_kb())
-            return
-        item = results[0]
-        url = item.get("url")
-        if url:
+        # Qo'shiq nomi ham, YouTube URL ham qabul qilinadi.
+        direct_url = text if re.match(
+            r"^https?://(?:www\\.)?(?:youtube\\.com|youtu\\.be)/",
+            text,
+            re.I
+        ) else None
+
+        item = None
+        url = direct_url
+
+        if not url:
+            results = await ytm_search_api(text, "songs", 1)
+            if not results:
+                results = await music_search_api(text, 1)
+            if not results:
+                await update.message.reply_text(
+                    "❌ Qo'shiq topilmadi.",
+                    reply_markup=music_kb()
+                )
+                return
+            item = results[0]
+            url = item.get("url")
+
+        if not url:
             await update.message.reply_text(
-                f"🎧 <b>{item.get('title', 'Noma’lum')}</b>\n"
-                f"{item.get('artist','')}\n\n🔗 {url}",
-                parse_mode="HTML",
-                disable_web_page_preview=True
-            )
-        else:
-            await update.message.reply_text(
-                f"🎧 {item.get('title', 'Noma’lum')}\n"
-                "❌ Audio havolasi topilmadi.",
+                "❌ YouTube havolasi topilmadi.",
                 reply_markup=music_kb()
             )
-        add_xp(user.id, 3)
+            return
+
+        status = await update.message.reply_text(
+            "🎵 <b>Audio tayyorlanmoqda...</b> ⏳",
+            parse_mode="HTML"
+        )
+
+        filename = None
+        try:
+            filename, title, artist = await download_audio(url)
+
+            if not os.path.exists(filename):
+                raise RuntimeError("Audio fayl topilmadi.")
+
+            if os.path.getsize(filename) > 49 * 1024 * 1024:
+                raise RuntimeError("Audio fayl juda katta.")
+
+            ext = os.path.splitext(filename)[1].lower()
+            caption = f"🎵 <b>{title}</b>" + (f"\n👤 {artist}" if artist else "")
+
+            with open(filename, "rb") as audio_file:
+                if ext in (".mp3", ".m4a"):
+                    await update.message.reply_audio(
+                        audio_file,
+                        title=title[:64],
+                        performer=(artist or "")[:64],
+                        caption=caption,
+                        parse_mode="HTML",
+                    )
+                else:
+                    await update.message.reply_document(
+                        audio_file,
+                        caption=caption,
+                        parse_mode="HTML",
+                    )
+
+            await status.delete()
+            add_xp(user.id, 5)
+
+        except Exception as e:
+            log.exception(e)
+            try:
+                await status.edit_text(
+                    f"❌ Audio yuklab bo'lmadi:\n{str(e)[:500]}",
+                    reply_markup=music_kb()
+                )
+            except Exception:
+                pass
+        finally:
+            if filename and os.path.exists(filename):
+                try:
+                    os.remove(filename)
+                except Exception:
+                    pass
         return
 
     await update.message.reply_text(
@@ -1691,7 +1806,20 @@ async def admin_text_router(update,context,text):
         await update.message.reply_text("👥 User ID yuboring:",reply_markup=admin_reply_kb()); return
     if text=="📝 Start qismi":
         current=get_config("start_text") or "Standart start matni"
-        await update.message.reply_text("📝 <b>START QISMI</b>\n\nHozirgi matn:\n"+current+"\n\nYangi start matnini yuboring:",parse_mode="HTML",reply_markup=admin_reply_kb()); context.user_data["admin_mode"]="start_text"; return
+        await update.message.reply_text(
+            "📝 <b>START QISMI</b>\n\n"
+            "Hozirgi matn:\n" + current +
+            "\n\nYangi start matnini yuboring.\n\n"
+            "🔤 O'zgaruvchilar:\n"
+            "<code>{name}</code> — ism\n"
+            "<code>{username}</code> — username\n"
+            "<code>{id}</code> — Telegram ID\n"
+            "<code>{mention}</code> — bosiladigan ism",
+            parse_mode="HTML",
+            reply_markup=admin_reply_kb()
+        )
+        context.user_data["admin_mode"]="start_text"
+        return
     if text=="⚙️ Bot sozlamalari":
         await update.message.reply_text("⚙️ <b>BOT SOZLAMALARI</b>\n\nAdmin panel orqali asosiy sozlamalar boshqariladi.",parse_mode="HTML",reply_markup=admin_reply_kb()); return
 
