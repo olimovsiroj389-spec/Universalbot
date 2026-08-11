@@ -54,12 +54,12 @@ from telegram.ext import (
 # deep-translator
 # ============================================================
 
-TOKEN = "8797534923:AAHtGe-9YbjYyRHxGd5UhguVOppgb3tv9c4"
-ADMIN_ID = 8824266579
-OPENAI_API_KEY = "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"
+TOKEN = os.getenv("BOT_TOKEN", "").strip()
+ADMIN_ID = int(os.getenv("ADMIN_ID", "8824266579") or 0)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-MUSIC_API_KEY = "AIzaSyBCjO4wBBcQkI9Q66bqKmhJWJHz-cMzH9Q"
+MUSIC_API_KEY = os.getenv("MUSIC_API_KEY", "")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
 DB_FILE = os.getenv("DB_FILE", "hammasi_birda.db")
 
@@ -181,8 +181,25 @@ def init_db():
     )
     """)
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS payment_requests(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        amount INTEGER NOT NULL,
+        status TEXT DEFAULT 'pending',
+        created_at TEXT DEFAULT '',
+        reviewed_at TEXT DEFAULT ''
+    )
+    """)
+
     con.commit()
     con.close()
+    if not get_config("vip_price_uzs"):
+        set_config("vip_price_uzs", "20000")
+    if not get_config("vip_days"):
+        set_config("vip_days", "30")
+    if not get_config("vip_enabled"):
+        set_config("vip_enabled", "1")
 
 def ensure_user(user):
     con = db()
@@ -225,6 +242,41 @@ def add_coins(user_id, amount):
     )
     con.commit()
     con.close()
+
+def balance_uzs(user_id):
+    row=user_row(user_id)
+    return int(row[3] or 0) if row else 0
+
+def is_vip(user_id):
+    con=db()
+    row=con.execute("SELECT expires_at FROM vip_users WHERE user_id=?",(user_id,)).fetchone()
+    con.close()
+    if not row or not row[0]:
+        return False
+    try:
+        return datetime.fromisoformat(row[0]) > datetime.now()
+    except Exception:
+        return False
+
+def set_vip(user_id, days):
+    expires=datetime.now()+timedelta(days=days)
+    con=db()
+    con.execute("INSERT OR REPLACE INTO vip_users(user_id,expires_at) VALUES(?,?)",(user_id,expires.isoformat(timespec="seconds")))
+    con.commit(); con.close()
+    return expires
+
+def create_payment(user_id, amount):
+    con=db()
+    cur=con.execute("INSERT INTO payment_requests(user_id,amount,created_at) VALUES(?,?,?)",(user_id,amount,datetime.now().isoformat(timespec="seconds")))
+    pid=cur.lastrowid
+    con.commit(); con.close()
+    return pid
+
+def get_payment(pid):
+    con=db(); row=con.execute("SELECT id,user_id,amount,status,created_at FROM payment_requests WHERE id=?",(pid,)).fetchone(); con.close(); return row
+
+def set_payment_status(pid,status):
+    con=db(); con.execute("UPDATE payment_requests SET status=?,reviewed_at=? WHERE id=?",(status,datetime.now().isoformat(timespec="seconds"),pid)); con.commit(); con.close()
 
 def add_xp(user_id, amount):
     con = db()
@@ -277,175 +329,102 @@ def is_admin_user(user_id):
     except Exception:
         return user_id == ADMIN_ID
 
+LANGS={
+    "uz": {
+        "ai":"🤖 AI","dl":"📥 Downloader","music":"🎵 Musiqa","media":"🖼 Media","games":"🎮 O'yinlar","wallet":"💰 Hamyon","tools":"🛠 Tools","search":"🔎 Qidiruv","group":"👥 Guruh","bonus":"🎁 Bonus","vip":"👑 VIP","settings":"⚙️ Sozlamalar","profile":"👤 Profil","help":"ℹ️ Yordam","back":"🔙 Bosh menyu","lang":"🌐 Til","deposit":"💳 Pul kiritish","buy_vip":"👑 VIP sotib olish"
+    },
+    "ru": {
+        "ai":"🤖 AI","dl":"📥 Загрузчик","music":"🎵 Музыка","media":"🖼 Медиа","games":"🎮 Игры","wallet":"💰 Кошелёк","tools":"🛠 Инструменты","search":"🔎 Поиск","group":"👥 Группа","bonus":"🎁 Бонус","vip":"👑 VIP","settings":"⚙️ Настройки","profile":"👤 Профиль","help":"ℹ️ Помощь","back":"🔙 Главное меню","lang":"🌐 Язык","deposit":"💳 Пополнить баланс","buy_vip":"👑 Купить VIP"
+    },
+    "en": {
+        "ai":"🤖 AI","dl":"📥 Downloader","music":"🎵 Music","media":"🖼 Media","games":"🎮 Games","wallet":"💰 Wallet","tools":"🛠 Tools","search":"🔎 Search","group":"👥 Group","bonus":"🎁 Bonus","vip":"👑 VIP","settings":"⚙️ Settings","profile":"👤 Profile","help":"ℹ️ Help","back":"🔙 Main menu","lang":"🌐 Language","deposit":"💳 Add funds","buy_vip":"👑 Buy VIP"
+    }
+}
+
+def user_lang(user_id):
+    row=user_row(user_id)
+    return row[7] if row and row[7] in LANGS else "uz"
+
+def tr(user_id,key):
+    return LANGS[user_lang(user_id)].get(key,key)
+
+def set_user_lang(user_id,lang):
+    if lang not in LANGS: return
+    con=db(); con.execute("UPDATE users SET lang=? WHERE user_id=?",(lang,user_id)); con.commit(); con.close()
+
 def home_reply_kb(user_id=None):
+    lang=user_lang(user_id) if user_id else "uz"
+    L=LANGS[lang]
     rows=[
-        [KeyboardButton("🤖 AI"),KeyboardButton("📥 Downloader")],
-        [KeyboardButton("🎵 Musiqa"),KeyboardButton("🖼 Media")],
-        [KeyboardButton("🎮 O'yinlar"),KeyboardButton("💰 Hamyon")],
-        [KeyboardButton("🛠 Tools"),KeyboardButton("🔎 Qidiruv")],
-        [KeyboardButton("👥 Guruh"),KeyboardButton("🎁 Bonus")],
-        [KeyboardButton("👑 VIP"),KeyboardButton("⚙️ Sozlamalar")],
-        [KeyboardButton("👤 Profil"),KeyboardButton("ℹ️ Yordam")],
+        [KeyboardButton(L["ai"]),KeyboardButton(L["dl"])],
+        [KeyboardButton(L["music"]),KeyboardButton(L["media"])],
+        [KeyboardButton(L["games"]),KeyboardButton(L["wallet"])],
+        [KeyboardButton(L["tools"]),KeyboardButton(L["search"])],
+        [KeyboardButton(L["group"]),KeyboardButton(L["bonus"])],
+        [KeyboardButton(L["vip"]),KeyboardButton(L["settings"])],
+        [KeyboardButton(L["profile"]),KeyboardButton(L["help"])],
     ]
-    if user_id is not None and is_admin_user(user_id):
-        rows.append([KeyboardButton("👑 Botni boshqarish")])
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True)
+    if user_id is not None and is_admin_user(user_id): rows.append([KeyboardButton("👑 Botni boshqarish")])
+    return ReplyKeyboardMarkup(rows,resize_keyboard=True,is_persistent=True)
 
 def admin_reply_kb():
     return ReplyKeyboardMarkup([
         [KeyboardButton("📊 Statistika"),KeyboardButton("📢 Reklama")],
         [KeyboardButton("📣 Majburiy obuna"),KeyboardButton("👑 VIP sozlash")],
-        [KeyboardButton("👥 User boshqaruv"),KeyboardButton("📝 Start qismi")],
-        [KeyboardButton("⚙️ Bot sozlamalari"),KeyboardButton("🔙 Bosh menyu")],
-    ], resize_keyboard=True, is_persistent=True)
+        [KeyboardButton("💳 Karta sozlash"),KeyboardButton("👥 User boshqaruv")],
+        [KeyboardButton("📝 Start qismi"),KeyboardButton("⚙️ Bot sozlamalari")],
+        [KeyboardButton("🔙 Bosh menyu")],
+    ],resize_keyboard=True,is_persistent=True)
 
-async def subscription_status(bot, user_id):
+async def subscription_status(bot,user_id):
     channel_id=get_config("force_channel_id")
-    if not channel_id:
-        return True
+    if not channel_id: return True
     try:
-        m=await bot.get_chat_member(int(channel_id), user_id)
-        return m.status in (ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER)
+        m=await bot.get_chat_member(int(channel_id),user_id)
+        return m.status in (ChatMemberStatus.MEMBER,ChatMemberStatus.ADMINISTRATOR,ChatMemberStatus.OWNER)
     except Exception as e:
-        log.warning("Force subscription check: %s", e)
-        return False
+        log.warning("Force subscription check: %s",e); return False
 
-async def require_subscription(update, context):
+async def require_subscription(update,context):
     user=update.effective_user
-    if not user or is_admin_user(user.id):
-        return True
-    if await subscription_status(context.bot,user.id):
-        return True
+    if not user or is_admin_user(user.id) or await subscription_status(context.bot,user.id): return True
     link=get_config("force_channel_link")
     if not link:
         username=get_config("force_channel_username")
-        if username:
-            link="https://t.me/"+username.lstrip("@")
+        if username: link="https://t.me/"+username.lstrip("@")
     buttons=[]
-    if link:
-        buttons.append([InlineKeyboardButton("📣 Kanalga obuna bo'lish",url=link)])
+    if link: buttons.append([InlineKeyboardButton("📣 Kanalga obuna bo'lish",url=link)])
     buttons.append([InlineKeyboardButton("🔄 Tekshirish",callback_data="check_subscription")])
     text="📣 <b>Majburiy obuna</b>\n\nBotdan foydalanish uchun kanalga obuna bo'ling."
-    if update.callback_query:
-        await update.callback_query.edit_message_text(text,parse_mode="HTML",reply_markup=InlineKeyboardMarkup(buttons))
-    elif update.effective_message:
-        await update.effective_message.reply_text(text,parse_mode="HTML",reply_markup=InlineKeyboardMarkup(buttons))
+    if update.callback_query: await update.callback_query.edit_message_text(text,parse_mode="HTML",reply_markup=InlineKeyboardMarkup(buttons))
+    elif update.effective_message: await update.effective_message.reply_text(text,parse_mode="HTML",reply_markup=InlineKeyboardMarkup(buttons))
     return False
 
-# ============================================================
-# DYNAMIC / TEMP DATA
-# ============================================================
+BOT_USERNAME=os.getenv("BOT_USERNAME","UniversalProBot")
 
-BOT_USERNAME = os.getenv("BOT_USERNAME", "UniversalProBot")
-
-def bot_username_text():
-    return "@" + BOT_USERNAME.lstrip("@")
-
+def bot_username_text(): return "@"+BOT_USERNAME.lstrip("@")
 def bonus_remaining_text():
-    now = datetime.now()
-    tomorrow = datetime.combine(now.date() + timedelta(days=1), datetime.min.time())
-    seconds = max(0, int((tomorrow - now).total_seconds()))
-    hours, rem = divmod(seconds, 3600)
-    minutes, secs = divmod(rem, 60)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-
-def group_add_url():
-    return f"https://t.me/{BOT_USERNAME.lstrip('@')}?startgroup=add"
-
-# ============================================================
-# COMMON UI
-# ============================================================
+    now=datetime.now(); tomorrow=datetime.combine(now.date()+timedelta(days=1),datetime.min.time()); seconds=max(0,int((tomorrow-now).total_seconds())); hours,rem=divmod(seconds,3600); minutes,secs=divmod(rem,60); return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+def group_add_url(): return f"https://t.me/{BOT_USERNAME.lstrip('@')}?startgroup=add"
 
 def kb(rows):
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(text, callback_data=data) for text, data in row]
-        for row in rows
-    ])
+    return InlineKeyboardMarkup([[InlineKeyboardButton(text,callback_data=data) for text,data in row] for row in rows])
 
-def back():
-    return kb([[("🔙 Bosh menyu", "home")]])
+def back(): return kb([[('🔙 Bosh menyu','home_reply')]])
+def back2(*rows): return kb(list(rows)+[[('🔙 Bosh menyu','home_reply')]])
 
-def back2(*rows):
-    return kb(list(rows) + [[("🔙 Orqaga", "home")]])
+def home_kb(user_id=None):
+    L=LANGS[user_lang(user_id) if user_id else "uz"]
+    return kb([[(L["ai"],"menu_ai"),(L["dl"],"menu_dl")],[(L["music"],"menu_music"),(L["media"],"menu_media")],[(L["games"],"menu_games"),(L["wallet"],"menu_wallet")],[(L["tools"],"menu_tools"),(L["search"],"menu_search")],[(L["group"],"menu_group"),(L["bonus"],"bonus")],[(L["vip"],"menu_vip"),(L["settings"],"menu_settings")],[(L["profile"],"profile"),(L["help"],"help")]])
 
-def home_kb():
-    return kb([
-        [("🤖 AI", "menu_ai"), ("📥 Downloader", "menu_dl")],
-        [("🎵 Musiqa", "menu_music"), ("🖼 Media", "menu_media")],
-        [("🎮 O'yinlar", "menu_games"), ("💰 Hamyon", "menu_wallet")],
-        [("🛠 Tools", "menu_tools"), ("🔎 Qidiruv", "menu_search")],
-        [("👥 Guruh", "menu_group"), ("🎁 Bonus", "bonus")],
-        [("👑 VIP", "menu_vip"), ("⚙️ Sozlamalar", "menu_settings")],
-        [("👤 Profil", "profile"), ("ℹ️ Yordam", "help")]
-    ])
-
-def ai_kb():
-    return kb([
-        [("💬 AI Chat", "ai_chat"), ("✍️ Matn yozish", "ai_write")],
-        [("📝 Qisqartirish", "ai_summary"), ("🌐 Tarjima", "ai_translate")],
-        [("💻 Kod yordamchi", "ai_code"), ("🎯 Prompt generator", "ai_prompt")],
-        [("🔙 Bosh menyu", "home")]
-    ])
-
-def dl_kb():
-    return kb([
-        [("▶️ YouTube", "dl_youtube"), ("📸 Instagram", "dl_instagram")],
-        [("🎵 TikTok", "dl_tiktok"), ("📘 Facebook", "dl_facebook")],
-        [("🔗 Universal URL", "dl_url"), ("ℹ️ Qoidalar", "dl_rules")],
-        [("🔙 Bosh menyu", "home")]
-    ])
-
-def music_kb():
-    return kb([
-        [("🔎 Qo'shiq qidirish", "music_search"), ("🎤 Artist", "music_artist")],
-        [("🔥 Trend", "music_trend"), ("🎧 Audio", "music_audio")],
-        [("📃 Lyrics", "music_lyrics"), ("ℹ️ Yordam", "music_help")],
-        [("🔙 Bosh menyu", "home")]
-    ])
-
-def media_kb():
-    return kb([
-        [("🗜 Siqish", "media_compress"), ("📐 O'lcham", "media_resize")],
-        [("⚫ Qora-oq", "media_gray"), ("🔄 JPG/PNG", "media_convert")],
-        [("🔍 OCR", "media_ocr"), ("📄 PDF", "media_pdf")],
-        [("🔙 Bosh menyu", "home")]
-    ])
-
-def games_kb():
-    return kb([
-        [("🎲 Zar", "game_dice"), ("🪙 Coin", "game_coin")],
-        [("🎰 Slot", "game_slot"), ("🧠 Son topish", "game_guess")],
-        [("🏆 TOP 10", "ranking"), ("🎯 21 o'yini", "game_21")],
-        [("🔙 Bosh menyu", "home")]
-    ])
-
-def tools_kb():
-    return kb([
-        [("🧮 Kalkulyator", "tool_calc"), ("🔗 QR", "tool_qr")],
-        [("🔐 Parol", "tool_password"), ("🆔 UUID", "tool_uuid")],
-        [("🌐 Tarjimon", "tool_translate"), ("📊 Matn stats", "tool_stats")],
-        [("🔢 Base converter", "tool_base"), ("🔡 Case converter", "tool_case")],
-        [("🕐 Vaqt", "tool_time"), ("📅 Sana", "tool_date")],
-        [("🔙 Bosh menyu", "home")]
-    ])
-
-def group_kb():
-    return kb([
-        [("➕ Guruhga qo'shish", "group_add")],
-        [("🛡 Anti-spam", "group_antispam"), ("🔗 Link filter", "group_links")],
-        [("👋 Welcome", "group_welcome"), ("⚠️ Warn", "group_warn")],
-        [("🔇 Mute", "group_mute"), ("🚫 Ban", "group_ban")],
-        [("📌 Pin", "group_pin"), ("🧹 Delete", "group_delete")],
-        [("ℹ️ Admin yordam", "group_help")],
-        [("🔙 Bosh menyu", "home")]
-    ])
-
-def settings_kb():
-    return kb([
-        [("🌐 Til", "setting_lang"), ("🔔 Bildirishnoma", "setting_notify")],
-        [("🧹 Sessiyani tozalash", "setting_clear"), ("👤 Profil", "profile")],
-        [("🔙 Bosh menyu", "home")]
-    ])
+def ai_kb(): return kb([[('💬 AI Chat','ai_chat'),('✍️ Matn yozish','ai_write')],[('📝 Qisqartirish','ai_summary'),('🌐 Tarjima','ai_translate')],[('💻 Kod yordamchi','ai_code'),('🎯 Prompt generator','ai_prompt')],[('🔙 Bosh menyu','home_reply')]])
+def dl_kb(): return kb([[('▶️ YouTube','dl_youtube'),('📸 Instagram','dl_instagram')],[('🎵 TikTok','dl_tiktok'),('📘 Facebook','dl_facebook')],[('🔗 Universal URL','dl_url'),('ℹ️ Qoidalar','dl_rules')],[('🔙 Bosh menyu','home_reply')]])
+def music_kb(): return kb([[ ("🔎 Qo'shiq qidirish","music_search"),("🎤 Artist","music_artist") ],[("🔥 Trend","music_trend"),("🎧 Audio","music_audio")],[("📃 Lyrics","music_lyrics"),("ℹ️ Yordam","music_help")],[("🔙 Bosh menyu","home_reply")]])
+def media_kb(): return kb([[('🗜 Siqish','media_compress'),("📐 O'lcham",'media_resize')],[('⚫ Qora-oq','media_gray'),('🔄 JPG/PNG','media_convert')],[('🔍 OCR','media_ocr'),('📄 PDF','media_pdf')],[('🔙 Bosh menyu','home_reply')]])
+def games_kb(): return kb([[('🎲 Zar','game_dice'),('🪙 Coin','game_coin')],[('🎰 Slot','game_slot'),('🧠 Son topish','game_guess')],[('🏆 TOP 10',"ranking"),("🎯 21 o'yini",'game_21')],[('🔙 Bosh menyu','home_reply')]])
+def tools_kb(): return kb([[('🧮 Kalkulyator','tool_calc'),('🔗 QR','tool_qr')],[('🔐 Parol','tool_password'),('🆔 UUID','tool_uuid')],[('🌐 Tarjimon','tool_translate'),('📊 Matn stats','tool_stats')],[('🔢 Base converter','tool_base'),('🔡 Case converter','tool_case')],[('🕐 Vaqt','tool_time'),('📅 Sana','tool_date')],[('🔙 Bosh menyu','home_reply')]])
+def group_kb(): return kb([[ ("➕ Guruhga qo'shish","group_add") ],[("🛡 Anti-spam","group_antispam"),("🔗 Link filter","group_links")],[("👋 Welcome","group_welcome"),("⚠️ Warn","group_warn")],[("🔇 Mute","group_mute"),("🚫 Ban","group_ban")],[("📌 Pin","group_pin"),("🧹 Delete","group_delete")],[("ℹ️ Admin yordam","group_help")],[("🔙 Bosh menyu","home_reply")]])
+def settings_kb(): return kb([[('🌐 Til','setting_lang'),('🔔 Bildirishnoma','setting_notify')],[('🧹 Sessiyani tozalash','setting_clear'),('👤 Profil','profile')],[('🔙 Bosh menyu','home_reply')]])
 
 
 # ============================================================
@@ -492,44 +471,43 @@ def calc(expr):
 
 async def ai(prompt):
     if not OPENAI_API_KEY:
-        return "🤖 <b>AI API ulanmagan.</b>\n\nOPENAI_API_KEY ni environment orqali kiriting."
+        return (
+            "🤖 <b>AI API ulanmagan.</b>\n\n"
+            "OPENAI_API_KEY berilganda bu funksiya haqiqiy AI "
+            "javobini qaytaradi."
+        )
     if aiohttp is None:
-        return "❌ aiohttp o'rnatilmagan. <code>pip install aiohttp</code> qiling."
-    url="https://api.openai.com/v1/chat/completions"
-    headers={"Authorization":f"Bearer {OPENAI_API_KEY.strip()}","Content-Type":"application/json"}
-    payload={"model":OPENAI_MODEL,"messages":[{"role":"system","content":"HammasiBirdaBot yordamchisisiz. O'zbek tilida aniq va foydali javob bering."},{"role":"user","content":prompt}],"temperature":0.7}
+        return "❌ aiohttp o'rnatilmagan."
+
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": OPENAI_MODEL,
+        "messages": [
+            {
+                "role":"system",
+                "content":"HammasiBirdaBot yordamchisisiz. O'zbek tilida aniq javob bering."
+            },
+            {"role":"user","content":prompt}
+        ],
+        "temperature":0.7
+    }
+
     try:
-        timeout=aiohttp.ClientTimeout(total=60,connect=20)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            for attempt in range(2):
-                try:
-                    async with session.post(url,headers=headers,json=payload) as r:
-                        raw=await r.text()
-                        try: data=__import__('json').loads(raw)
-                        except Exception: data={}
-                        if r.status==200:
-                            choices=data.get('choices') or []
-                            if choices:
-                                answer=choices[0].get('message',{}).get('content','')
-                                if answer: return answer.strip()
-                            return "❌ AI javobi bo'sh qaytdi."
-                        err=data.get('error',{}) if isinstance(data,dict) else {}
-                        msg=err.get('message') or f'HTTP {r.status}'
-                        log.error('OpenAI API %s: %s',r.status,msg)
-                        if r.status in (429,500,502,503,504) and attempt==0:
-                            await asyncio.sleep(1.2); continue
-                        if r.status in (401,403): return "❌ AI API kaliti yaroqsiz yoki bekor qilingan. Yangi OPENAI_API_KEY kiriting."
-                        if r.status==404: return f"❌ AI modeli topilmadi: <code>{OPENAI_MODEL}</code>."
-                        if r.status==429: return "❌ AI limiti tugagan yoki juda ko'p so'rov yuborildi."
-                        return f"❌ AI API xatolik: {msg[:350]}"
-                except (aiohttp.ClientError,asyncio.TimeoutError) as e:
-                    log.warning('AI connection attempt %s: %s',attempt+1,e)
-                    if attempt==0:
-                        await asyncio.sleep(1); continue
-                    return "❌ AI serveriga ulanib bo'lmadi. Internet/API ulanishini tekshiring."
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(timeout=timeout) as s:
+            async with s.post(url,headers=headers,json=payload) as r:
+                data = await r.json()
+                if r.status != 200:
+                    log.error(data)
+                    return "❌ AI API kaliti noto'g'ri yoki muddati tugagan." if r.status in (401,403) else "❌ AI API xatolik qaytardi."
+                return data["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        log.exception('AI helper error')
-        return f"❌ AI bilan ulanishda xatolik: {str(e)[:250]}"
+        log.exception(e)
+        return "❌ AI bilan ulanishda xatolik."
 
 async def translate(target,text):
     if GoogleTranslator is None:
@@ -801,6 +779,18 @@ async def help_cmd(update, context):
 
 
 # ============================================================
+# WALLET / PAYMENTS
+# ============================================================
+def wallet_kb(user_id):
+    return kb([[('💳 Pul kiritish','wallet_deposit'),('👑 VIP sotib olish','vip_buy')],[('🔙 Bosh menyu','home_reply')]])
+
+def payment_card_kb():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("💸 To'lov qildim",callback_data="payment_done")],[InlineKeyboardButton('🔙 Bosh menyu',callback_data='home_reply')]])
+
+def lang_kb():
+    return kb([[("🇺🇿 O'zbekcha","lang_uz")],[('🇷🇺 Русский','lang_ru')],[('🇬🇧 English','lang_en')],[('🔙 Bosh menyu','home_reply')]])
+
+# ============================================================
 # CALLBACK ROUTER
 # ============================================================
 
@@ -816,22 +806,41 @@ async def cb(update, context):
         else:
             await require_subscription(update,context)
         return
+    if d in ("home","home_reply"):
+        context.user_data.clear()
+        try: await q.message.delete()
+        except Exception: pass
+        await context.bot.send_message(user.id,"🏠 <b>BOSH MENYU</b>\n\n👇 Bo'limni tanlang:",parse_mode="HTML",reply_markup=home_reply_kb(user.id))
+        return
+    if d.startswith("lang_"):
+        lang=d.split("_",1)[1]
+        set_user_lang(user.id,lang)
+        await q.edit_message_text("✅ Til o'zgartirildi.",reply_markup=home_kb(user.id))
+        await context.bot.send_message(user.id,"🏠 Bosh menyu",reply_markup=home_reply_kb(user.id))
+        return
     if d != "home" and not await require_subscription(update,context):
         return
 
-    if d == "home":
-        # Inline menyuni yopib, asosiy menyuni RESIZE reply keyboard sifatida qaytaramiz.
-        context.user_data.clear()
-        try:
-            await q.message.delete()
-        except Exception:
-            pass
-        await context.bot.send_message(
-            chat_id=q.message.chat_id,
-            text="😈 <b>HAMMASI BIRDA BOT</b>\n\n👇 Bo'limni tanlang:",
-            parse_mode="HTML",
-            reply_markup=home_reply_kb(user.id)
-        )
+    if d == "wallet_deposit":
+        context.user_data['mode']='deposit_amount'
+        await q.edit_message_text("💳 <b>PUL KIRITISH</b>\n\nQancha UZS kiritmoqchisiz?\nMasalan: <code>20000</code>",parse_mode="HTML",reply_markup=back())
+        return
+    if d == "payment_done":
+        pid=context.user_data.get('payment_id')
+        if not pid:
+            await q.answer("Avval to'lov miqdorini tanlang.",show_alert=True); return
+        context.user_data['mode']='payment_receipt'
+        await q.edit_message_text("📸 <b>Chekni yuboring</b>\n\nTo'lov qilganingizni tasdiqlovchi screenshotni rasm qilib yuboring.",parse_mode="HTML",reply_markup=back())
+        return
+    if d == "vip_buy":
+        enabled=get_config('vip_enabled','1')=='1'; price=int(get_config('vip_price_uzs','20000') or 20000); days=int(get_config('vip_days','30') or 30)
+        if not enabled:
+            await q.edit_message_text("❌ VIP hozircha o'chirilgan.",reply_markup=back()); return
+        bal=balance_uzs(user.id)
+        if bal < price:
+            await q.edit_message_text(f"❌ Mablag' yetarli emas.\n\n💰 Balans: <b>{bal:,} UZS</b>\n👑 VIP: <b>{price:,} UZS</b>",parse_mode='HTML',reply_markup=wallet_kb(user.id)); return
+        add_coins(user.id,-price); expires=set_vip(user.id,days)
+        await q.edit_message_text(f"🎉 <b>Tabriklaymiz! VIP sotib olindi.</b>\n\n💳 {price:,} UZS yechildi.\n📅 Muddat: {days} kun.\n⏳ {expires:%d.%m.%Y %H:%M}",parse_mode='HTML',reply_markup=back())
         return
 
     if d == "help":
@@ -863,28 +872,6 @@ async def cb(update, context):
         await q.edit_message_text(
             ai_modes[d][1],reply_markup=back()
         ); return
-
-    if d == "vip_buy":
-        if get_config("vip_enabled","1") != "1":
-            await q.edit_message_text("❌ VIP hozircha o'chirilgan.", reply_markup=back())
-            return
-        try:
-            price = int(get_config("vip_price","1000")); days = int(get_config("vip_days","30"))
-        except Exception:
-            price, days = 1000, 30
-        r = user_row(user.id)
-        if r[3] < price:
-            await q.edit_message_text(
-                f"❌ Coin yetarli emas.\n\n💰 Kerak: <b>{price}</b> 🪙\n🪙 Sizda: <b>{r[3]}</b> 🪙",
-                parse_mode="HTML", reply_markup=back())
-            return
-        add_coins(user.id, -price)
-        expires = datetime.now() + timedelta(days=days)
-        con=db(); con.execute("INSERT OR REPLACE INTO vip_users(user_id,expires_at) VALUES(?,?)", (user.id, expires.isoformat(timespec="seconds"))); con.commit(); con.close()
-        await q.edit_message_text(
-            f"👑 <b>VIP muvaffaqiyatli yoqildi!</b>\n\n📅 Muddat: <b>{days} kun</b>\n⏳ Tugash vaqti: <b>{expires.strftime('%Y-%m-%d %H:%M')}</b>",
-            parse_mode="HTML", reply_markup=back())
-        return
 
     # ---------------- AUDIO DOWNLOAD ----------------
     if d.startswith("audio_dl:"):
@@ -1064,18 +1051,11 @@ async def cb(update, context):
 
     # ---------------- WALLET / BONUS ----------------
     if d == "menu_wallet":
-        r=user_row(user.id)
+        r=user_row(user.id); bal=r[3]
         await q.edit_message_text(
-            f"💰 <b>HAMYON</b>\n\n"
-            f"🪙 Coin: <b>{r[3]}</b>\n"
-            f"⭐ XP: <b>{r[4]}</b>\n"
-            f"🏆 Level: <b>{r[5]}</b>",
-            parse_mode="HTML",
-            reply_markup=kb([
-                [("🎁 Kunlik bonus","bonus"),("🏆 TOP","ranking")],
-                [("👤 Profil","profile"),("🔙 Bosh menyu","home")]
-            ])
-        ); return
+            f"💰 <b>HAMYON</b>\n\n💳 Balans: <b>{bal:,} UZS</b>\n⭐ XP: <b>{r[4]}</b>\n🏆 Level: <b>{r[5]}</b>",
+            parse_mode="HTML", reply_markup=wallet_kb(user.id))
+        return
 
     if d == "bonus":
         r=user_row(user.id); today=date.today().isoformat()
@@ -1184,15 +1164,10 @@ async def cb(update, context):
 
     # ---------------- VIP ----------------
     if d=="menu_vip":
-        enabled=get_config("vip_enabled","1")=="1"
-        price=get_config("vip_price","1000")
-        days=get_config("vip_days","30")
-        await q.edit_message_text(
-            "👑 <b>VIP</b>\n\n"
-            + (f"💰 Narx: <b>{price} 🪙</b>\n📅 Muddat: <b>{days} kun</b>\n\n" if enabled else "❌ VIP hozircha o'chirilgan.\n\n")
-            + "VIP imkoniyatlari:\n⚡ AI limit\n📥 kengaytirilgan downloader\n🎵 premium music\n🛠 premium tools",
-            parse_mode="HTML",reply_markup=back()
-        ); return
+        enabled=get_config("vip_enabled","1")=="1"; price=int(get_config("vip_price_uzs","20000") or 20000); days=int(get_config("vip_days","30") or 30)
+        status="🟢 Yoqilgan" if enabled else "🔴 O'chirilgan"
+        own="" if not is_vip(user.id) else "\n\n✅ Sizda VIP faol."
+        await q.edit_message_text(f"👑 <b>VIP</b>\n\nHolat: {status}\n💳 Narx: <b>{price:,} UZS</b>\n📅 Muddat: <b>{days} kun</b>{own}",parse_mode='HTML',reply_markup=kb([[('👑 VIP sotib olish','vip_buy')],[('🔙 Bosh menyu','home_reply')]])); return
 
     # ---------------- SETTINGS ----------------
     if d=="menu_settings":
@@ -1202,11 +1177,7 @@ async def cb(update, context):
         ); return
 
     if d=="setting_lang":
-        await q.edit_message_text(
-            "🌐 <b>TIL</b>\n\n🇺🇿 O'zbekcha — faol.\n"
-            "🇷🇺 Ruscha va 🇬🇧 English interfeyslarini keyin qo'shish mumkin.",
-            parse_mode="HTML",reply_markup=back()
-        ); return
+        await q.edit_message_text("🌐 <b>TILNI TANLANG</b>",parse_mode='HTML',reply_markup=lang_kb()); return
 
     if d=="setting_notify":
         await q.edit_message_text(
@@ -1347,17 +1318,11 @@ async def text_menu_dispatch(update,context,d):
         "menu_tools":("🛠 <b>TOOLS MARKAZI</b>\n\nKerakli vositani tanlang:",tools_kb()),
         "menu_search":(f"🔎 <b>QIDIRUV</b>\n\nInline rejimdan foydalaning:\n<code>{bot_username_text()} 25+35</code>\n<code>{bot_username_text()} musiqa Artist</code>",back()),
         "menu_group":("👥 <b>GURUH BOSHQARUVI</b>\n\nBot guruhda admin bo'lsa moderatsiya funksiyalari ishlaydi.",group_kb()),
-        "menu_vip":(
-            "👑 <b>VIP MARKAZI</b>\n\n"
-            "⚡ AI limit\n📥 Kengaytirilgan downloader\n🎵 Premium music\n🛠 Premium tools\n\n"
-            f"💰 Narx: <b>{get_config('vip_price','1000')} 🪙</b>\n"
-            f"📅 Muddat: <b>{get_config('vip_days','30')} kun</b>",
-            kb([[('💳 VIP olish','vip_buy')],[('🔙 Bosh menyu','home')]])
-        ),
+        "menu_wallet":(f"💰 <b>HAMYON</b>\n\n💳 Balans: <b>{balance_uzs(update.effective_user.id):,} UZS</b>",wallet_kb(update.effective_user.id)),
+        "menu_vip":(f"👑 <b>VIP</b>\n\n💳 Narx: <b>{int(get_config('vip_price_uzs','20000')):,} UZS</b>\n📅 Muddat: <b>{int(get_config('vip_days','30'))} kun</b>",kb([[('👑 VIP sotib olish','vip_buy')],[('🔙 Bosh menyu','home_reply')]])),
         "menu_settings":("⚙️ <b>SOZLAMALAR</b>\n\nTanlang:",settings_kb()),
     }
     if d in screens:
-        context.user_data.pop("mode", None)
         text,markup=screens[d]
         await update.message.reply_text(text,parse_mode="HTML",reply_markup=markup)
         return
@@ -1395,12 +1360,12 @@ async def text_router(update,context):
     mode=context.user_data.get("mode")
 
     # Resize reply keyboard main menu
+    L=LANGS[user_lang(user.id)]
     main_routes={
-        "🤖 AI":"menu_ai","📥 Downloader":"menu_dl","🎵 Musiqa":"menu_music",
-        "🖼 Media":"menu_media","🎮 O'yinlar":"menu_games","💰 Hamyon":"menu_wallet",
-        "🛠 Tools":"menu_tools","🔎 Qidiruv":"menu_search","👥 Guruh":"menu_group",
-        "🎁 Bonus":"bonus","👑 VIP":"menu_vip","⚙️ Sozlamalar":"menu_settings",
-        "👤 Profil":"profile","ℹ️ Yordam":"help"
+        L["ai"]:"menu_ai",L["dl"]:"menu_dl",L["music"]:"menu_music",L["media"]:"menu_media",
+        L["games"]:"menu_games",L["wallet"]:"menu_wallet",L["tools"]:"menu_tools",L["search"]:"menu_search",
+        L["group"]:"menu_group",L["bonus"]:"bonus",L["vip"]:"menu_vip",L["settings"]:"menu_settings",
+        L["profile"]:"profile",L["help"]:"help"
     }
     if text == "👑 Botni boshqarish":
         if is_admin_user(user.id):
@@ -1421,6 +1386,20 @@ async def text_router(update,context):
         d=main_routes[text]
         await text_menu_dispatch(update,context,d)
         return
+
+    if mode=="deposit_amount":
+        try:
+            amount=int(text.replace(',','').replace(' ',''))
+            if amount<1000 or amount>100000000: raise ValueError
+        except Exception:
+            await update.message.reply_text("❌ Miqdorni to'g'ri kiriting. Masalan: 20000 UZS",reply_markup=back()); return
+        card=get_config("payment_card","")
+        if not card:
+            await update.message.reply_text("❌ To'lov kartasi hali admin tomonidan sozlanmagan.",reply_markup=home_reply_kb(user.id)); return
+        pid=create_payment(user.id,amount)
+        context.user_data["payment_id"]=pid
+        context.user_data.pop("mode",None)
+        await update.message.reply_text(f"💳 <b>TO'LOV</b>\n\n💰 Miqdor: <b>{amount:,} UZS</b>\n💳 Karta: <code>{card}</code>\n\nTo'lovni amalga oshiring. Keyin <b>To'lov qildim</b> tugmasini bosing.",parse_mode='HTML',reply_markup=payment_card_kb()); return
 
     # Guess
     if "guess" in context.user_data and text.isdigit():
@@ -1671,6 +1650,21 @@ async def text_router(update,context):
 async def photo_router(update,context):
     user=update.effective_user
     ensure_user(user)
+    mode=context.user_data.get("mode")
+    if mode=="payment_receipt":
+        pid=context.user_data.get("payment_id")
+        payment=get_payment(pid) if pid else None
+        if not payment or payment[3]!="pending":
+            await update.message.reply_text("❌ To'lov arizasi topilmadi.",reply_markup=home_reply_kb(user.id)); return
+        admin_text=f"💳 <b>YANGI TO'LOV ZAYAVKASI</b>\n\n🆔 User ID: <code>{user.id}</code>\n👤 @{user.username or 'yoq'}\n💰 Summa: <b>{payment[2]:,} UZS</b>\n🧾 Ariza: <code>#{pid}</code>"
+        kb_admin=InlineKeyboardMarkup([[InlineKeyboardButton('✅ Tasdiqlash',callback_data=f'pay_confirm:{pid}'),InlineKeyboardButton('❌ Rad etish',callback_data=f'pay_reject:{pid}')]])
+        try:
+            await context.bot.send_photo(ADMIN_ID,update.message.photo[-1].file_id,caption=admin_text,parse_mode='HTML',reply_markup=kb_admin)
+            context.user_data.pop('mode',None); context.user_data.pop('payment_id',None)
+            await update.message.reply_text("✅ Chek adminga yuborildi. Tasdiqlanishini kuting.",reply_markup=home_reply_kb(user.id))
+        except Exception as e:
+            log.exception(e); await update.message.reply_text("❌ Chekni adminga yuborib bo'lmadi.",reply_markup=home_reply_kb(user.id))
+        return
     mode=context.user_data.get("media","compress")
     photo=update.message.photo[-1]
     f=await context.bot.get_file(photo.file_id)
@@ -1787,25 +1781,55 @@ async def admin_cmd(update,context):
 
 
 async def adminstats(update,context):
-    if not ADMIN_ID or update.effective_user.id!=ADMIN_ID:
+    if not is_admin_user(update.effective_user.id):
         await update.message.reply_text("⛔ Ruxsat yo'q."); return
     con=db()
     users=con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    coins=con.execute("SELECT COALESCE(SUM(coins),0) FROM users").fetchone()[0]
-    row=con.execute(
-        "SELECT messages FROM stats WHERE day=?",(date.today().isoformat(),)
-    ).fetchone()
+    balance=con.execute("SELECT COALESCE(SUM(coins),0) FROM users").fetchone()[0]
+    today=con.execute("SELECT messages FROM stats WHERE day=?",(date.today().isoformat(),)).fetchone()
+    vip_count=con.execute("SELECT COUNT(*) FROM vip_users WHERE expires_at>?",(datetime.now().isoformat(),)).fetchone()[0]
+    payments=con.execute("SELECT COUNT(*),COALESCE(SUM(amount),0) FROM payment_requests WHERE status='approved'").fetchone()
+    pending=con.execute("SELECT COUNT(*) FROM payment_requests WHERE status='pending'").fetchone()[0]
     con.close()
     await update.message.reply_text(
-        f"👑 <b>ADMIN</b>\n\n👥 Users: {users}\n"
-        f"🪙 Coin: {coins}\n💬 Bugungi xabar: {row[0] if row else 0}",
-        parse_mode="HTML"
-    )
+        f"📊 <b>BOT STATISTIKASI</b>\n\n"
+        f"👥 Foydalanuvchilar: <b>{users:,}</b>\n"
+        f"💳 Jami balans: <b>{balance:,} UZS</b>\n"
+        f"👑 Aktiv VIP: <b>{vip_count:,}</b>\n"
+        f"💰 Tasdiqlangan to'lov: <b>{payments[1]:,} UZS</b> ({payments[0]} ta)\n"
+        f"⏳ Kutilayotgan to'lovlar: <b>{pending}</b>\n"
+        f"💬 Bugungi xabarlar: <b>{today[0] if today else 0:,}</b>",parse_mode="HTML")
 
 
 async def admin_text_router(update,context,text):
     user=update.effective_user
     mode=context.user_data.get("admin_mode")
+    if mode=="payment_card":
+        card=re.sub(r"[^0-9 ]","",text).strip()
+        if len(re.sub(r"\D","",card))<12:
+            await update.message.reply_text("❌ Karta raqami noto'g'ri.",reply_markup=admin_reply_kb()); return
+        set_config("payment_card",card); context.user_data.pop("admin_mode",None)
+        await update.message.reply_text(f"✅ Karta saqlandi: <code>{card}</code>",parse_mode='HTML',reply_markup=admin_reply_kb()); return
+    if mode=="user_manage":
+        try: uid=int(text); r=user_row(uid)
+        except: r=None
+        if not r:
+            await update.message.reply_text("❌ User topilmadi.",reply_markup=admin_reply_kb()); return
+        context.user_data["managed_user"]=uid; context.user_data.pop("admin_mode",None)
+        kb_user=InlineKeyboardMarkup([[InlineKeyboardButton("➕ Pul qo'shish",callback_data=f'user_add:{uid}'),InlineKeyboardButton('➖ Pul ayirish',callback_data=f'user_sub:{uid}')]])
+        await update.message.reply_text(f"👤 <b>USER</b>\n\nID: <code>{uid}</code>\nUsername: @{r[1] or 'yoq'}\n💳 Balans: <b>{r[3]:,} UZS</b>",parse_mode='HTML',reply_markup=kb_user); return
+    if mode=="admin_amount_add" or mode=="admin_amount_sub":
+        try: amount=int(text.replace(',','').replace(' ',''))
+        except: await update.message.reply_text("❌ Faqat raqam kiriting.",reply_markup=admin_reply_kb()); return
+        uid=context.user_data.get("managed_user")
+        if not uid: await update.message.reply_text("❌ User tanlanmagan.",reply_markup=admin_reply_kb()); return
+        if mode=="admin_amount_sub": amount=-abs(amount)
+        else: amount=abs(amount)
+        add_coins(uid,amount); context.user_data.pop("admin_mode",None)
+        await update.message.reply_text(f"✅ Balans o'zgartirildi: {amount:+,} UZS",reply_markup=admin_reply_kb())
+        try: await context.bot.send_message(uid,f"💳 Hisobingizga <b>{amount:+,} UZS</b> o'zgartirish kiritildi.",parse_mode='HTML')
+        except: pass
+        return
     if mode=="broadcast":
         context.user_data.pop("admin_mode",None)
         con=db(); ids=[r[0] for r in con.execute("SELECT user_id FROM users").fetchall()]; con.close()
@@ -1838,7 +1862,7 @@ async def admin_text_router(update,context,text):
         set_config("start_text",text); context.user_data.pop("admin_mode",None)
         await update.message.reply_text("✅ Start matni saqlandi.",reply_markup=admin_reply_kb()); return
     if mode=="vip_price":
-        try: price=max(0,int(text)); set_config("vip_price",price); context.user_data.pop("admin_mode",None); await update.message.reply_text(f"✅ VIP narxi: {price} 🪙",reply_markup=admin_reply_kb())
+        try: price=max(0,int(text)); set_config("vip_price_uzs",price); context.user_data.pop("admin_mode",None); await update.message.reply_text(f"✅ VIP narxi: {price:,} UZS",reply_markup=admin_reply_kb())
         except: await update.message.reply_text("❌ Faqat raqam kiriting.",reply_markup=admin_reply_kb())
         return
     if mode=="vip_days":
@@ -1850,7 +1874,9 @@ async def admin_text_router(update,context,text):
         except: r=None
         if not r: await update.message.reply_text("❌ User topilmadi.",reply_markup=admin_reply_kb()); return
         context.user_data.pop("admin_mode",None)
-        await update.message.reply_text(f"👤 <b>USER</b>\n\nID: <code>{r[0]}</code>\nUsername: @{r[1] or 'yo‘q'}\nIsm: {r[2]}\n🪙 Coin: {r[3]}\n⭐ XP: {r[4]}\n🏆 Level: {r[5]}",parse_mode="HTML",reply_markup=admin_reply_kb()); return
+        context.user_data["managed_user"]=uid
+        manage_kb=InlineKeyboardMarkup([[InlineKeyboardButton("➕ Pul qo'shish",callback_data=f"user_add:{uid}"),InlineKeyboardButton("➖ Pul ayirish",callback_data=f"user_sub:{uid}")]])
+        await update.message.reply_text(f"👤 <b>USER</b>\n\nID: <code>{r[0]}</code>\nUsername: @{r[1] or 'yo‘q'}\nIsm: {r[2]}\n💳 Balans: <b>{r[3]:,} UZS</b>\n⭐ XP: {r[4]}\n🏆 Level: {r[5]}",parse_mode="HTML",reply_markup=manage_kb); return
 
     if text=="📊 Statistika":
         await adminstats(update,context); return
@@ -1862,8 +1888,12 @@ async def admin_text_router(update,context,text):
         await update.message.reply_text(f"📣 <b>MAJBURIY OBUNA</b>\n\nHozirgi kanal: <b>{current}</b>\n\nKanalni ulang:\n<code>@kanal_username</code>\nyoki private kanal uchun:\n<code>-100123456789|https://t.me/+invite</code>",parse_mode="HTML",reply_markup=admin_reply_kb())
         context.user_data["admin_mode"]="force_channel"; return
     if text=="👑 VIP sozlash":
-        price=get_config("vip_price","1000"); days=get_config("vip_days","30"); enabled=get_config("vip_enabled","1")
+        price=get_config("vip_price_uzs","20000"); days=get_config("vip_days","30"); enabled=get_config("vip_enabled","1")
         await update.message.reply_text(f"👑 <b>VIP SOZLAMALARI</b>\n\nHolat: {'✅ Yoqilgan' if enabled=='1' else '❌ O‘chirilgan'}\n💰 Narx: {price} 🪙\n📅 Muddat: {days} kun",parse_mode="HTML",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💰 Narx",callback_data="admin_vip_price"),InlineKeyboardButton("📅 Muddat",callback_data="admin_vip_days")],[InlineKeyboardButton("🔄 ON/OFF",callback_data="admin_vip_toggle")]])); return
+    if text=="💳 Karta sozlash":
+        current=get_config("payment_card","o'rnatilmagan")
+        context.user_data["admin_mode"]="payment_card"
+        await update.message.reply_text(f"💳 <b>KARTA SOZLASH</b>\n\nHozirgi: <code>{current}</code>\n\nYangi karta raqamini yuboring:",parse_mode='HTML',reply_markup=admin_reply_kb()); return
     if text=="👥 User boshqaruv":
         context.user_data["admin_mode"]="user_lookup"
         await update.message.reply_text("👥 User ID yuboring:",reply_markup=admin_reply_kb()); return
@@ -1887,6 +1917,31 @@ async def admin_callback(update,context):
         await q.edit_message_text("📅 VIP muddatini kunlarda yuboring:")
 
 # ============================================================
+# PAYMENT / USER ADMIN CALLBACKS
+# ============================================================
+async def payment_user_admin_callback(update,context):
+    q=update.callback_query; await q.answer()
+    if not is_admin_user(q.from_user.id): return
+    d=q.data
+    if d.startswith('pay_confirm:') or d.startswith('pay_reject:'):
+        pid=int(d.split(':',1)[1]); payment=get_payment(pid)
+        if not payment or payment[3] != 'pending':
+            await q.answer("Ariza allaqachon ko'rilgan.",show_alert=True); return
+        uid,amount=payment[1],payment[2]
+        if d.startswith('pay_confirm:'):
+            add_coins(uid,amount); set_payment_status(pid,'approved')
+            await q.edit_message_caption(caption=f"✅ <b>TASDIQLANDI</b>\n\n🆔 {uid}\n💰 {amount:,} UZS\n🧾 #{pid}",parse_mode='HTML')
+            await context.bot.send_message(uid,f"🎉 <b>To'lov tasdiqlandi!</b>\n\nHisobingizga <b>{amount:,} so'm</b> qo'shildi.\n💳 Yangi balans: <b>{balance_uzs(uid):,} UZS</b>",parse_mode='HTML')
+        else:
+            set_payment_status(pid,'rejected')
+            await q.edit_message_caption(caption=f"❌ <b>RAD ETILDI</b>\n\n🆔 {uid}\n💰 {amount:,} UZS\n🧾 #{pid}",parse_mode='HTML')
+            await context.bot.send_message(uid,f"❌ <b>To'lov zayavkangiz rad etildi.</b>\n\nAriza: #{pid}",parse_mode='HTML')
+        return
+    if d.startswith('user_add:') or d.startswith('user_sub:'):
+        uid=int(d.split(':',1)[1]); context.user_data['managed_user']=uid; context.user_data['admin_mode']='admin_amount_add' if d.startswith('user_add:') else 'admin_amount_sub'
+        await q.message.reply_text('💰 Summani UZS da yuboring:',reply_markup=admin_reply_kb()); return
+
+# ============================================================
 # ERROR / MAIN
 # ============================================================
 
@@ -1906,6 +1961,7 @@ def main():
     app.add_handler(CommandHandler("admin",admin_cmd))
     app.add_handler(CommandHandler("adminstats",adminstats))
     app.add_handler(InlineQueryHandler(inline))
+    app.add_handler(CallbackQueryHandler(payment_user_admin_callback, pattern=r"^(pay_confirm|pay_reject|user_add|user_sub):"))
     app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^admin_vip_"))
     app.add_handler(CallbackQueryHandler(cb))
 
