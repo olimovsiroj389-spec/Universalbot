@@ -11,8 +11,9 @@ import sqlite3
 import logging
 import asyncio
 import operator as op
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from urllib.parse import quote_plus
+from pathlib import Path
 
 from telegram import (
     Update,
@@ -332,6 +333,26 @@ async def require_subscription(update, context):
     return False
 
 # ============================================================
+# DYNAMIC / TEMP DATA
+# ============================================================
+
+BOT_USERNAME = os.getenv("BOT_USERNAME", "UniversalProBot")
+
+def bot_username_text():
+    return "@" + BOT_USERNAME.lstrip("@")
+
+def bonus_remaining_text():
+    now = datetime.now()
+    tomorrow = datetime.combine(now.date() + timedelta(days=1), datetime.min.time())
+    seconds = max(0, int((tomorrow - now).total_seconds()))
+    hours, rem = divmod(seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+def group_add_url():
+    return f"https://t.me/{BOT_USERNAME.lstrip('@')}?startgroup=add"
+
+# ============================================================
 # COMMON UI
 # ============================================================
 
@@ -410,6 +431,7 @@ def tools_kb():
 
 def group_kb():
     return kb([
+        [("➕ Guruhga qo'shish", "group_add")],
         [("🛡 Anti-spam", "group_antispam"), ("🔗 Link filter", "group_links")],
         [("👋 Welcome", "group_welcome"), ("⚠️ Warn", "group_warn")],
         [("🔇 Mute", "group_mute"), ("🚫 Ban", "group_ban")],
@@ -470,43 +492,44 @@ def calc(expr):
 
 async def ai(prompt):
     if not OPENAI_API_KEY:
-        return (
-            "🤖 <b>AI API ulanmagan.</b>\n\n"
-            "OPENAI_API_KEY berilganda bu funksiya haqiqiy AI "
-            "javobini qaytaradi."
-        )
+        return "🤖 <b>AI API ulanmagan.</b>\n\nOPENAI_API_KEY ni environment orqali kiriting."
     if aiohttp is None:
-        return "❌ aiohttp o'rnatilmagan."
-
-    url = "https://api.openai.com/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": OPENAI_MODEL,
-        "messages": [
-            {
-                "role":"system",
-                "content":"HammasiBirdaBot yordamchisisiz. O'zbek tilida aniq javob bering."
-            },
-            {"role":"user","content":prompt}
-        ],
-        "temperature":0.7
-    }
-
+        return "❌ aiohttp o'rnatilmagan. <code>pip install aiohttp</code> qiling."
+    url="https://api.openai.com/v1/chat/completions"
+    headers={"Authorization":f"Bearer {OPENAI_API_KEY.strip()}","Content-Type":"application/json"}
+    payload={"model":OPENAI_MODEL,"messages":[{"role":"system","content":"HammasiBirdaBot yordamchisisiz. O'zbek tilida aniq va foydali javob bering."},{"role":"user","content":prompt}],"temperature":0.7}
     try:
-        timeout = aiohttp.ClientTimeout(total=60)
-        async with aiohttp.ClientSession(timeout=timeout) as s:
-            async with s.post(url,headers=headers,json=payload) as r:
-                data = await r.json()
-                if r.status != 200:
-                    log.error(data)
-                    return "❌ AI API xatolik qaytardi."
-                return data["choices"][0]["message"]["content"].strip()
+        timeout=aiohttp.ClientTimeout(total=60,connect=20)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            for attempt in range(2):
+                try:
+                    async with session.post(url,headers=headers,json=payload) as r:
+                        raw=await r.text()
+                        try: data=__import__('json').loads(raw)
+                        except Exception: data={}
+                        if r.status==200:
+                            choices=data.get('choices') or []
+                            if choices:
+                                answer=choices[0].get('message',{}).get('content','')
+                                if answer: return answer.strip()
+                            return "❌ AI javobi bo'sh qaytdi."
+                        err=data.get('error',{}) if isinstance(data,dict) else {}
+                        msg=err.get('message') or f'HTTP {r.status}'
+                        log.error('OpenAI API %s: %s',r.status,msg)
+                        if r.status in (429,500,502,503,504) and attempt==0:
+                            await asyncio.sleep(1.2); continue
+                        if r.status in (401,403): return "❌ AI API kaliti yaroqsiz yoki bekor qilingan. Yangi OPENAI_API_KEY kiriting."
+                        if r.status==404: return f"❌ AI modeli topilmadi: <code>{OPENAI_MODEL}</code>."
+                        if r.status==429: return "❌ AI limiti tugagan yoki juda ko'p so'rov yuborildi."
+                        return f"❌ AI API xatolik: {msg[:350]}"
+                except (aiohttp.ClientError,asyncio.TimeoutError) as e:
+                    log.warning('AI connection attempt %s: %s',attempt+1,e)
+                    if attempt==0:
+                        await asyncio.sleep(1); continue
+                    return "❌ AI serveriga ulanib bo'lmadi. Internet/API ulanishini tekshiring."
     except Exception as e:
-        log.exception(e)
-        return "❌ AI bilan ulanishda xatolik."
+        log.exception('AI helper error')
+        return f"❌ AI bilan ulanishda xatolik: {str(e)[:250]}"
 
 async def translate(target,text):
     if GoogleTranslator is None:
@@ -797,10 +820,17 @@ async def cb(update, context):
         return
 
     if d == "home":
+        # Inline menyuni yopib, asosiy menyuni RESIZE reply keyboard sifatida qaytaramiz.
         context.user_data.clear()
-        await q.edit_message_text(
-            "😈 <b>HAMMASI BIRDA BOT</b>\n\n👇 Bo'limni tanlang:",
-            parse_mode="HTML",reply_markup=home_kb()
+        try:
+            await q.message.delete()
+        except Exception:
+            pass
+        await context.bot.send_message(
+            chat_id=q.message.chat_id,
+            text="😈 <b>HAMMASI BIRDA BOT</b>\n\n👇 Bo'limni tanlang:",
+            parse_mode="HTML",
+            reply_markup=home_reply_kb(user.id)
         )
         return
 
@@ -833,6 +863,56 @@ async def cb(update, context):
         await q.edit_message_text(
             ai_modes[d][1],reply_markup=back()
         ); return
+
+    if d == "vip_buy":
+        if get_config("vip_enabled","1") != "1":
+            await q.edit_message_text("❌ VIP hozircha o'chirilgan.", reply_markup=back())
+            return
+        try:
+            price = int(get_config("vip_price","1000")); days = int(get_config("vip_days","30"))
+        except Exception:
+            price, days = 1000, 30
+        r = user_row(user.id)
+        if r[3] < price:
+            await q.edit_message_text(
+                f"❌ Coin yetarli emas.\n\n💰 Kerak: <b>{price}</b> 🪙\n🪙 Sizda: <b>{r[3]}</b> 🪙",
+                parse_mode="HTML", reply_markup=back())
+            return
+        add_coins(user.id, -price)
+        expires = datetime.now() + timedelta(days=days)
+        con=db(); con.execute("INSERT OR REPLACE INTO vip_users(user_id,expires_at) VALUES(?,?)", (user.id, expires.isoformat(timespec="seconds"))); con.commit(); con.close()
+        await q.edit_message_text(
+            f"👑 <b>VIP muvaffaqiyatli yoqildi!</b>\n\n📅 Muddat: <b>{days} kun</b>\n⏳ Tugash vaqti: <b>{expires.strftime('%Y-%m-%d %H:%M')}</b>",
+            parse_mode="HTML", reply_markup=back())
+        return
+
+    # ---------------- AUDIO DOWNLOAD ----------------
+    if d.startswith("audio_dl:"):
+        key = d.split(":", 1)[1]
+        item = context.user_data.get("audio_store", {}).get(key)
+        if not item:
+            await q.edit_message_text("❌ Audio havolasi eskirgan. Qo'shiqni qayta qidiring.", reply_markup=music_kb())
+            return
+        await q.answer("Audio yuklanmoqda...", show_alert=False)
+        status = await q.message.reply_text("📥 <b>Audio yuklanmoqda...</b> ⏳", parse_mode="HTML")
+        filename = None
+        try:
+            filename,title=await download_audio(item["url"])
+            if not os.path.exists(filename): raise RuntimeError("Audio fayli topilmadi.")
+            if os.path.getsize(filename)>49*1024*1024: raise RuntimeError("Audio fayli juda katta.")
+            with open(filename,"rb") as f:
+                await q.message.reply_audio(f,title=title[:64],performer=(item.get("artist") or "")[:64],caption=f"🎵 {title}")
+            await status.delete()
+            add_xp(user.id,5)
+        except Exception as e:
+            log.exception(e)
+            try: await status.edit_text(f"❌ Audioni yuklab bo'lmadi:\n{str(e)[:500]}")
+            except Exception: pass
+        finally:
+            if filename and os.path.exists(filename):
+                try: os.remove(filename)
+                except Exception: pass
+        return
 
     # ---------------- DOWNLOADER ----------------
     if d == "menu_dl":
@@ -1001,8 +1081,9 @@ async def cb(update, context):
         r=user_row(user.id); today=date.today().isoformat()
         if r[6]==today:
             await q.edit_message_text(
-                "🎁 Bugungi bonusni allaqachon olgansiz.",
-                reply_markup=back()
+                "🎁 <b>Bugungi bonusni oldingiz!</b>\n\n"
+                f"⏳ Keyingi bonusgacha: <b>{bonus_remaining_text()}</b>",
+                parse_mode="HTML", reply_markup=back()
             ); return
         con=db()
         con.execute("""
@@ -1011,7 +1092,9 @@ async def cb(update, context):
         """,(today,user.id))
         con.commit(); con.close()
         await q.edit_message_text(
-            "🎁 <b>BONUS OLINDI!</b>\n\n🪙 +100 Coin\n⭐ +10 XP",
+            "🎁 <b>Bugungi bonusni oldingiz!</b>\n\n"
+            "🪙 +100 Coin\n⭐ +10 XP\n\n"
+            f"⏳ Keyingi bonusgacha: <b>{bonus_remaining_text()}</b>",
             parse_mode="HTML",reply_markup=back()
         ); return
 
@@ -1059,13 +1142,33 @@ async def cb(update, context):
 
     # ---------------- SEARCH ----------------
     if d=="menu_search":
+        me = await context.bot.get_me()
+        uname = "@" + (me.username or BOT_USERNAME).lstrip("@")
         await q.edit_message_text(
             "🔎 <b>QIDIRUV</b>\n\n"
             "Inline rejimdan foydalaning:\n"
-            "<code>@BotUsername 25+35</code>\n"
-            "<code>@BotUsername musiqa Artist</code>\n\n"
-            "Bot username'ini Telegramda tanlash orqali inline qidiruv ochiladi.",
+            f"<code>{uname} 25+35</code>\n"
+            f"<code>{uname} musiqa Artist</code>\n\n"
+            "Bot username'i avtomatik ko'rsatiladi.",
             parse_mode="HTML",reply_markup=back()
+        ); return
+
+    # ---------------- GROUP ----------------
+    if d=="group_add":
+        me = await context.bot.get_me()
+        uname = me.username or BOT_USERNAME
+        add_url = f"https://t.me/{uname}?startgroup=add"
+        await q.edit_message_text(
+            "👥 <b>BOTNI GURUHGA QO'SHISH</b>\n\n"
+            "1️⃣ Tugmani bosing va guruhni tanlang.\n"
+            "2️⃣ Botni guruhga qo'shing.\n"
+            "3️⃣ Telegram oynasida botga <b>administrator</b> huquqlarini bering.\n\n"
+            "⚠️ Bot o'zini o'zi admin qila olmaydi — admin huquqini guruh egasi/admini tasdiqlaydi.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("➕ Guruhga qo'shish", url=add_url)],
+                [InlineKeyboardButton("🔙 Guruh menyusi", callback_data="menu_group")]
+            ])
         ); return
 
     # ---------------- GROUP ----------------
@@ -1242,11 +1345,19 @@ async def text_menu_dispatch(update,context,d):
         "menu_media":("🖼 <b>MEDIA MARKAZI</b>\n\nOperatsiyani tanlang, keyin rasm yuboring:",media_kb()),
         "menu_games":("🎮 <b>O'YINLAR</b>\n\nO'yinni tanlang:",games_kb()),
         "menu_tools":("🛠 <b>TOOLS MARKAZI</b>\n\nKerakli vositani tanlang:",tools_kb()),
-        "menu_search":("🔎 <b>QIDIRUV</b>\n\nInline rejimdan foydalaning:\n<code>@BotUsername 25+35</code>",back()),
+        "menu_search":(f"🔎 <b>QIDIRUV</b>\n\nInline rejimdan foydalaning:\n<code>{bot_username_text()} 25+35</code>\n<code>{bot_username_text()} musiqa Artist</code>",back()),
         "menu_group":("👥 <b>GURUH BOSHQARUVI</b>\n\nBot guruhda admin bo'lsa moderatsiya funksiyalari ishlaydi.",group_kb()),
+        "menu_vip":(
+            "👑 <b>VIP MARKAZI</b>\n\n"
+            "⚡ AI limit\n📥 Kengaytirilgan downloader\n🎵 Premium music\n🛠 Premium tools\n\n"
+            f"💰 Narx: <b>{get_config('vip_price','1000')} 🪙</b>\n"
+            f"📅 Muddat: <b>{get_config('vip_days','30')} kun</b>",
+            kb([[('💳 VIP olish','vip_buy')],[('🔙 Bosh menyu','home')]])
+        ),
         "menu_settings":("⚙️ <b>SOZLAMALAR</b>\n\nTanlang:",settings_kb()),
     }
     if d in screens:
+        context.user_data.pop("mode", None)
         text,markup=screens[d]
         await update.message.reply_text(text,parse_mode="HTML",reply_markup=markup)
         return
@@ -1260,9 +1371,9 @@ async def text_menu_dispatch(update,context,d):
     if d=="bonus":
         r=user_row(update.effective_user.id); today=date.today().isoformat()
         if r[6]==today:
-            await update.message.reply_text("🎁 Bugungi bonusni allaqachon olgansiz.",reply_markup=home_reply_kb(update.effective_user.id)); return
+            await update.message.reply_text("🎁 <b>Bugungi bonusni oldingiz!</b>\n\n" f"⏳ Keyingi bonusgacha: <b>{bonus_remaining_text()}</b>",parse_mode="HTML",reply_markup=home_reply_kb(update.effective_user.id)); return
         con=db(); con.execute("UPDATE users SET coins=coins+100,xp=xp+10,last_bonus=? WHERE user_id=?",(today,update.effective_user.id)); con.commit(); con.close()
-        await update.message.reply_text("🎁 <b>BONUS OLINDI!</b>\n\n🪙 +100 Coin\n⭐ +10 XP",parse_mode="HTML",reply_markup=home_reply_kb(update.effective_user.id))
+        await update.message.reply_text("🎁 <b>Bugungi bonusni oldingiz!</b>\n\n🪙 +100 Coin\n⭐ +10 XP\n\n" f"⏳ Keyingi bonusgacha: <b>{bonus_remaining_text()}</b>",parse_mode="HTML",reply_markup=home_reply_kb(update.effective_user.id))
         return
     if d=="menu_wallet":
         r=user_row(update.effective_user.id)
@@ -1308,13 +1419,7 @@ async def text_router(update,context):
         return
     if text in main_routes:
         d=main_routes[text]
-        if d=="bonus":
-            # Let the existing callback logic handle bonus consistently.
-            await update.message.reply_text("🎁 Bonusni olish uchun tugmani qayta bosing yoki /start orqali menyuni oching.")
-            return
-        fake_data=d
-        # Directly reproduce the callback by routing through a tiny helper.
-        await text_menu_dispatch(update,context,fake_data)
+        await text_menu_dispatch(update,context,d)
         return
 
     # Guess
@@ -1524,11 +1629,25 @@ async def text_router(update,context):
         item = results[0]
         url = item.get("url")
         if url:
+            key = secrets.token_urlsafe(8)
+            audio_store = context.user_data.setdefault("audio_store", {})
+            audio_store[key] = {
+                "url": url,
+                "title": item.get("title", "Audio"),
+                "artist": item.get("artist", "")
+            }
+            if len(audio_store) > 20:
+                for old_key in list(audio_store)[:-20]:
+                    audio_store.pop(old_key, None)
+
             await update.message.reply_text(
                 f"🎧 <b>{item.get('title', 'Noma’lum')}</b>\n"
-                f"{item.get('artist','')}\n\n🔗 {url}",
+                f"{item.get('artist','')}\n\n"
+                "🔗 Havola tayyor. Pastdagi tugma orqali audio faylni yuklab oling.",
                 parse_mode="HTML",
-                disable_web_page_preview=True
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📥 Audioni yuklab olish", callback_data=f"audio_dl:{key}")]
+                ])
             )
         else:
             await update.message.reply_text(
@@ -1597,6 +1716,11 @@ async def photo_router(update,context):
 async def inline(update,context):
     raw=update.inline_query.query.strip()
     results=[]
+    try:
+        me=await context.bot.get_me()
+        uname="@"+(me.username or BOT_USERNAME).lstrip("@")
+    except Exception:
+        uname=bot_username_text()
 
     if not raw:
         results=[
@@ -1605,7 +1729,7 @@ async def inline(update,context):
                 title="🧮 Kalkulyator",
                 description="25+35*2",
                 input_message_content=InputTextMessageContent(
-                    "🧮 Misol: @BotUsername 25+35*2"
+                    "🧮 Misol: " + uname + " 25+35*2"
                 )
             ),
             InlineQueryResultArticle(
@@ -1613,7 +1737,7 @@ async def inline(update,context):
                 title="🎵 Musiqa",
                 description="Artist yoki qo'shiq",
                 input_message_content=InputTextMessageContent(
-                    "🎵 Misol: @BotUsername musiqa Artist"
+                    "🎵 Misol: " + uname + " musiqa Artist"
                 )
             )
         ]
