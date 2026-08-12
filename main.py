@@ -735,9 +735,71 @@ async def music_lyrics_api(query):
     return None
 
 
-async def download_audio(url):
+async def download_cobalt_audio(url, title="Audio"):
+    """Try Cobalt's API first for public media URLs. No YouTube password/cookie is used.
+    The hosted Cobalt API can be rate-limited or protected, so this is a fallback
+    transport rather than a hard dependency.
+    """
+    if aiohttp is None:
+        raise RuntimeError("aiohttp o'rnatilmagan.")
+    api_url = os.getenv("COBALT_API_URL", "https://api.cobalt.tools/").rstrip("/") + "/"
+    os.makedirs("downloads", exist_ok=True)
+    safe=re.sub(r"[^a-zA-Z0-9._-]+","_",title).strip("._")[:70] or "audio"
+    filename=os.path.join("downloads", safe + "-cobalt.mp3")
+    payload={
+        "url":url,
+        "downloadMode":"audio",
+        "audioFormat":"mp3",
+        "audioBitrate":"192",
+        "filenameStyle":"basic",
+    }
+    timeout=aiohttp.ClientTimeout(total=120)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.post(api_url, json=payload, headers={
+            "Accept":"application/json",
+            "Content-Type":"application/json",
+            "User-Agent":"HammasiBirdaBot/1.0",
+        }) as r:
+            data=await r.json(content_type=None)
+            if r.status != 200:
+                raise RuntimeError(f"Cobalt HTTP {r.status}")
+
+        media_url = data.get("url")
+        if not media_url:
+            picker=data.get("picker") or []
+            if picker:
+                media_url=picker[0].get("url")
+        if not media_url:
+            code=data.get("code") or data.get("error") or "media URL qaytmadi"
+            raise RuntimeError(str(code)[:250])
+
+        async with session.get(media_url, headers={"User-Agent":"HammasiBirdaBot/1.0"}) as r:
+            if r.status != 200:
+                raise RuntimeError(f"Audio HTTP {r.status}")
+            total=0
+            with open(filename,"wb") as f:
+                async for chunk in r.content.iter_chunked(64*1024):
+                    total += len(chunk)
+                    if total > 49*1024*1024:
+                        raise RuntimeError("Audio fayli 49 MB dan katta.")
+                    f.write(chunk)
+    if not os.path.exists(filename) or os.path.getsize(filename) < 1024:
+        raise RuntimeError("Audio fayli bo'sh.")
+    return filename,title
+
+
+async def download_audio(url, title="Audio"):
+    # Public YouTube URL: try Cobalt first, then yt-dlp. Neither path needs
+    # the user's YouTube password or browser cookies.
+    cobalt_error=None
+    try:
+        return await download_cobalt_audio(url, title)
+    except Exception as e:
+        cobalt_error=e
+        log.warning("Cobalt audio failed: %s", e)
+
     if yt_dlp is None:
-        raise RuntimeError("yt-dlp o'rnatilmagan.")
+        raise RuntimeError(f"Audio yuklanmadi: {str(cobalt_error)[:250]}")
     os.makedirs("downloads", exist_ok=True)
     template = os.path.join("downloads", "%(title).70s-%(id)s.%(ext)s")
 
@@ -960,9 +1022,9 @@ async def cb(update, context):
             if item.get("provider")=="jamendo":
                 filename,title=await download_jamendo_audio(item["url"],item.get("title","Audio"),item.get("id",""))
             elif item.get("provider")=="youtube":
-                filename,title=await download_audio(item["url"])
+                filename,title=await download_audio(item["url"], item.get("title","Audio"))
             else:
-                filename,title=await download_audio(item["url"])
+                filename,title=await download_audio(item["url"], item.get("title","Audio"))
             if not os.path.exists(filename): raise RuntimeError("Audio fayli topilmadi.")
             if os.path.getsize(filename)>49*1024*1024: raise RuntimeError("Audio fayli juda katta.")
             with open(filename,"rb") as f:
@@ -971,7 +1033,7 @@ async def cb(update, context):
             add_xp(user.id,5)
         except Exception as e:
             log.exception(e)
-            try: await status.edit_text(f"❌ Audioni yuklab bo'lmadi:\n{str(e)[:500]}")
+            try: await status.edit_text("❌ <b>Audio yuklanmadi.</b>\n\n🔄 Boshqa natijani tanlang yoki birozdan keyin qayta urinib ko'ring.", parse_mode="HTML")
             except Exception: pass
         finally:
             if filename and os.path.exists(filename):
@@ -1657,7 +1719,9 @@ async def text_router(update,context):
             )
             return
 
-        lines=["🎵 <b>MUSIQA NATIJALARI</b>","","📚 Manba: Jamendo"]
+        providers=sorted({str(x.get("provider","")) for x in results if x.get("provider")})
+        source_label = "YouTube + Jamendo" if len(providers)>1 else ("YouTube" if providers == ["youtube"] else "Jamendo")
+        lines=["🎵 <b>MUSIQA NATIJALARI</b>","",f"📚 Manba: {source_label}"]
         buttons=[]
         for i,item in enumerate(results,1):
             title=item.get("title","Noma'lum")
