@@ -54,7 +54,7 @@ from telegram.ext import (
 # deep-translator
 # ============================================================
 
-TOKEN = "8797534923:AAGVinvLINKVYtiz2HQ-WXtaJa9oU3B_5KA"
+TOKEN = "8797534923:AAGTo8zHfhgIPDheIfPJgWjpI1cRkh63dHA"
 ADMIN_ID = 8824266579
 OPENROUTER_API_KEY = "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"
 OPENROUTER_MODEL = "openrouter/free"
