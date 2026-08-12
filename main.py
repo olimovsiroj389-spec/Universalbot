@@ -54,7 +54,7 @@ from telegram.ext import (
 # deep-translator
 # ============================================================
 
-TOKEN = "8797534923:AAF_TbXU8e5mYH7T00v3iSe4JPpEDgf6D3s"
+TOKEN = "8797534923:AAHgFsv3mVw7v9ssdqRgJ0Snl9nDk1Hf-Xc"
 ADMIN_ID = 8824266579
 OPENROUTER_API_KEY = "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"
 OPENROUTER_MODEL = "openrouter/free"
@@ -329,13 +329,13 @@ def is_admin_user(user_id):
 
 LANGS={
     "uz": {
-        "ai":"🤖 AI","dl":"📥 Downloader","music":"🎵 Musiqa","media":"🖼 Media","games":"🎮 O'yinlar","wallet":"💰 Hamyon","tools":"🛠 Tools","search":"🔎 Qidiruv","group":"👥 Guruh","bonus":"🎁 Bonus","vip":"👑 VIP","settings":"⚙️ Sozlamalar","profile":"👤 Profil","help":"ℹ️ Yordam","back":"🔙 Bosh menyu","lang":"🌐 Til","deposit":"💳 Pul kiritish","buy_vip":"👑 VIP sotib olish"
+        "ai":"◈ Ai studio","dl":"↗ Yuklash","music":"♫ Musiqa","media":"◌ Media","games":"◇ O'yinlar","wallet":"◫ Hamyon","tools":"⌘ Asboblar","search":"⌕ Qidiruv","group":"◎ Guruh","bonus":"✦ Bonus","vip":"♛ Vip","settings":"⚙ Sozlamalar","profile":"○ Profil","help":"? Yordam","back":"‹ Bosh menyu","lang":"◉ Til","deposit":"＋ Pul kiritish","buy_vip":"♛ Vip olish"
     },
     "ru": {
-        "ai":"🤖 AI","dl":"📥 Загрузчик","music":"🎵 Музыка","media":"🖼 Медиа","games":"🎮 Игры","wallet":"💰 Кошелёк","tools":"🛠 Инструменты","search":"🔎 Поиск","group":"👥 Группа","bonus":"🎁 Бонус","vip":"👑 VIP","settings":"⚙️ Настройки","profile":"👤 Профиль","help":"ℹ️ Помощь","back":"🔙 Главное меню","lang":"🌐 Язык","deposit":"💳 Пополнить баланс","buy_vip":"👑 Купить VIP"
+        "ai":"◈ Ai studio","dl":"↗ Загрузки","music":"♫ Музыка","media":"◌ Медиа","games":"◇ Игры","wallet":"◫ Кошелёк","tools":"⌘ Инструменты","search":"⌕ Поиск","group":"◎ Группа","bonus":"✦ Бонус","vip":"♛ Vip","settings":"⚙ Настройки","profile":"○ Профиль","help":"? Помощь","back":"‹ Главное меню","lang":"◉ Язык","deposit":"＋ Пополнить","buy_vip":"♛ Купить Vip"
     },
     "en": {
-        "ai":"🤖 AI","dl":"📥 Downloader","music":"🎵 Music","media":"🖼 Media","games":"🎮 Games","wallet":"💰 Wallet","tools":"🛠 Tools","search":"🔎 Search","group":"👥 Group","bonus":"🎁 Bonus","vip":"👑 VIP","settings":"⚙️ Settings","profile":"👤 Profile","help":"ℹ️ Help","back":"🔙 Main menu","lang":"🌐 Language","deposit":"💳 Add funds","buy_vip":"👑 Buy VIP"
+        "ai":"◈ Ai studio","dl":"↗ Downloads","music":"♫ Music","media":"◌ Media","games":"◇ Games","wallet":"◫ Wallet","tools":"⌘ Tools","search":"⌕ Search","group":"◎ Group","bonus":"✦ Bonus","vip":"♛ Vip","settings":"⚙ Settings","profile":"○ Profile","help":"? Help","back":"‹ Main menu","lang":"◉ Language","deposit":"＋ Add funds","buy_vip":"♛ Get Vip"
     }
 }
 
@@ -405,9 +405,9 @@ async def require_subscription(update,context):
             link="https://t.me/"+username.lstrip("@")
     buttons=[]
     if link:
-        buttons.append([InlineKeyboardButton("📣 Kanalga obuna bo'lish",url=link)])
-    buttons.append([InlineKeyboardButton("🔄 Obunani tekshirish",callback_data="check_subscription")])
-    text="📣 <b>Majburiy obuna</b>\n\nBotdan foydalanishdan oldin quyidagi kanalga obuna bo'ling."
+        buttons.append([InlineKeyboardButton("↗ Kanalga qo‘shilish",url=link)])
+    buttons.append([InlineKeyboardButton("↻ Obunani tekshirish",callback_data="check_subscription")])
+    text="✦ <b>Universal Pro</b>\n\nBotdan foydalanish uchun quyidagi kanalga obuna bo‘ling.\n\nObuna bo‘lgach, tekshiruvni bosing."
     if update.callback_query:
         await update.callback_query.edit_message_text(text,parse_mode="HTML",reply_markup=InlineKeyboardMarkup(buttons))
     elif update.effective_message:
@@ -418,6 +418,39 @@ async def require_subscription(update,context):
 BOT_USERNAME=os.getenv("BOT_USERNAME","UniversalProBot")
 
 def bot_username_text(): return "@"+BOT_USERNAME.lstrip("@")
+
+def premium_home_text(user):
+    import html
+    row = user_row(user.id)
+    name = html.escape(user.first_name or "Foydalanuvchi")
+    xp = int(row[4] or 0) if row else 0
+    level = int(row[5] or 1) if row else 1
+    balance = int(row[3] or 0) if row else 0
+    vip_line = "● faol"
+    con = db()
+    vip_row = con.execute("SELECT expires_at FROM vip_users WHERE user_id=?", (user.id,)).fetchone()
+    con.close()
+    if vip_row and vip_row[0]:
+        try:
+            exp = datetime.fromisoformat(vip_row[0])
+            if exp > datetime.now():
+                days = max(0, (exp.date() - datetime.now().date()).days)
+                vip_line = f"● faol · {days} kun"
+            else:
+                vip_line = "○ faol emas"
+        except Exception:
+            vip_line = "● faol"
+    return (
+        f"✦ <b>Universal Pro</b>\n\n"
+        f"Salom, <b>{name}</b>.\n"
+        f"Kerakli vosita bir necha bosqich narida.\n\n"
+        f"<b>Sizning profilingiz</b>\n"
+        f"{xp:,} XP  ·  daraja {level}\n"
+        f"{balance:,} UZS  ·  Vip {vip_line}\n\n"
+        f"<b>Bo‘limni tanlang</b>\n"
+        f"Ai, musiqa, media, yuklash va boshqa vositalar."
+    )
+
 def bonus_remaining_text():
     now=datetime.now(); tomorrow=datetime.combine(now.date()+timedelta(days=1),datetime.min.time()); seconds=max(0,int((tomorrow-now).total_seconds())); hours,rem=divmod(seconds,3600); minutes,secs=divmod(rem,60); return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 def group_add_url(): return f"https://t.me/{BOT_USERNAME.lstrip('@')}?startgroup=add"
@@ -425,21 +458,21 @@ def group_add_url(): return f"https://t.me/{BOT_USERNAME.lstrip('@')}?startgroup
 def kb(rows):
     return InlineKeyboardMarkup([[InlineKeyboardButton(text,callback_data=data) for text,data in row] for row in rows])
 
-def back(): return kb([[('🔙 Bosh menyu','home_reply')]])
-def back2(*rows): return kb(list(rows)+[[('🔙 Bosh menyu','home_reply')]])
+def back(): return kb([[('‹ Bosh sahifa','home_reply')]])
+def back2(*rows): return kb(list(rows)+[[('‹ Bosh sahifa','home_reply')]])
 
 def home_kb(user_id=None):
     L=LANGS[user_lang(user_id) if user_id else "uz"]
     return kb([[(L["ai"],"menu_ai"),(L["dl"],"menu_dl")],[(L["music"],"menu_music"),(L["media"],"menu_media")],[(L["games"],"menu_games"),(L["wallet"],"menu_wallet")],[(L["tools"],"menu_tools"),(L["search"],"menu_search")],[(L["group"],"menu_group"),(L["bonus"],"bonus")],[(L["vip"],"menu_vip"),(L["settings"],"menu_settings")],[(L["profile"],"profile"),(L["help"],"help")]])
 
-def ai_kb(): return kb([[('💬 AI Chat','ai_chat'),('✍️ Matn yozish','ai_write')],[('📝 Qisqartirish','ai_summary'),('🌐 Tarjima','ai_translate')],[('💻 Kod yordamchi','ai_code'),('🎯 Prompt generator','ai_prompt')],[('🔙 Bosh menyu','home_reply')]])
-def dl_kb(): return kb([[('▶️ YouTube','dl_youtube'),('📸 Instagram','dl_instagram')],[('🎵 TikTok','dl_tiktok'),('📘 Facebook','dl_facebook')],[('🔗 Universal URL','dl_url'),('ℹ️ Qoidalar','dl_rules')],[('🔙 Bosh menyu','home_reply')]])
-def music_kb(): return kb([[ ("🔎 Qo'shiq qidirish","music_search"),("🎤 Artist","music_artist") ],[("🔥 Trend","music_trend"),("🎧 Audio","music_audio")],[("📃 Lyrics","music_lyrics"),("ℹ️ Yordam","music_help")],[("🔙 Bosh menyu","home_reply")]])
-def media_kb(): return kb([[('🗜 Siqish','media_compress'),("📐 O'lcham",'media_resize')],[('⚫ Qora-oq','media_gray'),('🔄 JPG/PNG','media_convert')],[('🔍 OCR','media_ocr'),('📄 PDF','media_pdf')],[('🔙 Bosh menyu','home_reply')]])
-def games_kb(): return kb([[('🎲 Zar','game_dice'),('🪙 Coin','game_coin')],[('🎰 Slot','game_slot'),('🧠 Son topish','game_guess')],[('🏆 TOP 10',"ranking"),("🎯 21 o'yini",'game_21')],[('🔙 Bosh menyu','home_reply')]])
-def tools_kb(): return kb([[('🧮 Kalkulyator','tool_calc'),('🔗 QR','tool_qr')],[('🔐 Parol','tool_password'),('🆔 UUID','tool_uuid')],[('🌐 Tarjimon','tool_translate'),('📊 Matn stats','tool_stats')],[('🔢 Base converter','tool_base'),('🔡 Case converter','tool_case')],[('🕐 Vaqt','tool_time'),('📅 Sana','tool_date')],[('🔙 Bosh menyu','home_reply')]])
+def ai_kb(): return kb([[('◈ Ai chat','ai_chat'),('✦ Matn yozish','ai_write')],[('— Qisqartirish','ai_summary'),('◉ Tarjima','ai_translate')],[('⌘ Kod yordamchi','ai_code'),('✦ Prompt yaratish','ai_prompt')],[('‹ Bosh sahifa','home_reply')]])
+def dl_kb(): return kb([[('YouTube','dl_youtube'),('Instagram','dl_instagram')],[('TikTok','dl_tiktok'),('Facebook','dl_facebook')],[('↗ Universal URL','dl_url'),('· Qoidalar','dl_rules')],[('‹ Bosh sahifa','home_reply')]])
+def music_kb(): return kb([[ ("⌕ Qo‘shiq qidirish","music_search"),("♩ Artist","music_artist") ],[("✦ Trend","music_trend"),("♫ Audio","music_audio")],[("📃 Lyrics","music_lyrics"),("ℹ️ Yordam","music_help")],[("🔙 Bosh menyu","home_reply")]])
+def media_kb(): return kb([[('🗜 Siqish','media_compress'),("📐 O'lcham",'media_resize')],[('⚫ Qora-oq','media_gray'),('🔄 JPG/PNG','media_convert')],[('🔍 OCR','media_ocr'),('📄 PDF','media_pdf')],[('‹ Bosh sahifa','home_reply')]])
+def games_kb(): return kb([[('🎲 Zar','game_dice'),('🪙 Coin','game_coin')],[('🎰 Slot','game_slot'),('🧠 Son topish','game_guess')],[('🏆 TOP 10',"ranking"),("🎯 21 o'yini",'game_21')],[('‹ Bosh sahifa','home_reply')]])
+def tools_kb(): return kb([[('🧮 Kalkulyator','tool_calc'),('🔗 QR','tool_qr')],[('🔐 Parol','tool_password'),('🆔 UUID','tool_uuid')],[('🌐 Tarjimon','tool_translate'),('📊 Matn stats','tool_stats')],[('🔢 Base converter','tool_base'),('🔡 Case converter','tool_case')],[('🕐 Vaqt','tool_time'),('📅 Sana','tool_date')],[('‹ Bosh sahifa','home_reply')]])
 def group_kb(): return kb([[ ("➕ Guruhga qo'shish","group_add") ],[("🛡 Anti-spam","group_antispam"),("🔗 Link filter","group_links")],[("👋 Welcome","group_welcome"),("⚠️ Warn","group_warn")],[("🔇 Mute","group_mute"),("🚫 Ban","group_ban")],[("📌 Pin","group_pin"),("🧹 Delete","group_delete")],[("ℹ️ Admin yordam","group_help")],[("🔙 Bosh menyu","home_reply")]])
-def settings_kb(): return kb([[('🌐 Til','setting_lang'),('🔔 Bildirishnoma','setting_notify')],[('🧹 Sessiyani tozalash','setting_clear'),('👤 Profil','profile')],[('🔙 Bosh menyu','home_reply')]])
+def settings_kb(): return kb([[('◉ Til','setting_lang'),('○ Bildirishnoma','setting_notify')],[('× Sessiyani tozalash','setting_clear'),('○ Profil','profile')],[('‹ Bosh sahifa','home_reply')]])
 
 
 # ============================================================
@@ -709,19 +742,17 @@ async def start(update, context):
     user_id = str(user.id)
     mention = f'<a href="tg://user?id={user.id}">{name}</a>'
 
-    start_text = get_config("start_text") or (
-        "😈 <b>HAMMASI BIRDA BOT</b>\n\n"
-        f"Salom, <b>{name}</b>!\n"
-        "👇 Kerakli xizmatni tanlang:"
-    )
-
-    start_text = (
-        start_text
-        .replace("{name}", name)
-        .replace("{username}", username)
-        .replace("{id}", user_id)
-        .replace("{mention}", mention)
-    )
+    configured_start = get_config("start_text")
+    if configured_start:
+        start_text = (
+            configured_start
+            .replace("{name}", name)
+            .replace("{username}", username)
+            .replace("{id}", user_id)
+            .replace("{mention}", mention)
+        )
+    else:
+        start_text = premium_home_text(user)
 
     await update.message.reply_text(
         start_text, parse_mode="HTML",
@@ -730,7 +761,7 @@ async def start(update, context):
 
 async def help_cmd(update, context):
     await update.message.reply_text(
-        "ℹ️ <b>YORDAM</b>\n\n"
+        "? <b>Yordam</b>\n\n"
         "Barcha xizmatlar menyu ichidagi tugmalar orqali ishlaydi.\n\n"
         "Inline misollar:\n"
         "<code>@BotUsername 25+35*2</code>\n"
@@ -745,13 +776,13 @@ async def help_cmd(update, context):
 # WALLET / PAYMENTS
 # ============================================================
 def wallet_kb(user_id):
-    return kb([[('💳 Pul kiritish','wallet_deposit'),('👑 VIP sotib olish','vip_buy')],[('🔙 Bosh menyu','home_reply')]])
+    return kb([[('＋ Pul kiritish','wallet_deposit'),('♛ Vip olish','vip_buy')],[('‹ Bosh sahifa','home_reply')]])
 
 def payment_card_kb():
     return InlineKeyboardMarkup([[InlineKeyboardButton("💸 To'lov qildim",callback_data="payment_done")],[InlineKeyboardButton('🔙 Bosh menyu',callback_data='home_reply')]])
 
 def lang_kb():
-    return kb([[("🇺🇿 O'zbekcha","lang_uz")],[('🇷🇺 Русский','lang_ru')],[('🇬🇧 English','lang_en')],[('🔙 Bosh menyu','home_reply')]])
+    return kb([[("🇺🇿 O'zbekcha","lang_uz")],[('🇷🇺 Русский','lang_ru')],[('🇬🇧 English','lang_en')],[('‹ Bosh sahifa','home_reply')]])
 
 # ============================================================
 # CALLBACK ROUTER
@@ -765,8 +796,8 @@ async def cb(update, context):
     d = q.data
     if d == "check_subscription":
         if await subscription_status(context.bot,user.id):
-            await q.edit_message_text("✅ <b>Obuna tasdiqlandi!</b>\n\nEndi botdan foydalanishingiz mumkin.",parse_mode="HTML",reply_markup=home_kb(user.id))
-            await context.bot.send_message(user.id,"🏠 Bosh menyu",reply_markup=home_reply_kb(user.id))
+            await q.edit_message_text("✓ <b>Obuna tasdiqlandi</b>\n\nUniversal Pro siz uchun ochiq.",parse_mode="HTML")
+            await context.bot.send_message(user.id,"✦ Bosh menyu",reply_markup=home_reply_kb(user.id))
         else:
             await require_subscription(update,context)
         return
@@ -774,13 +805,13 @@ async def cb(update, context):
         context.user_data.clear()
         try: await q.message.delete()
         except Exception: pass
-        await context.bot.send_message(user.id,"🏠 <b>BOSH MENYU</b>\n\n👇 Bo'limni tanlang:",parse_mode="HTML",reply_markup=home_reply_kb(user.id))
+        await context.bot.send_message(user.id,premium_home_text(user),parse_mode="HTML",reply_markup=home_reply_kb(user.id))
         return
     if d.startswith("lang_"):
         lang=d.split("_",1)[1]
         set_user_lang(user.id,lang)
         await q.edit_message_text("✅ Til o'zgartirildi.",reply_markup=home_kb(user.id))
-        await context.bot.send_message(user.id,"🏠 Bosh menyu",reply_markup=home_reply_kb(user.id))
+        await context.bot.send_message(user.id,"✦ Bosh menyu",reply_markup=home_reply_kb(user.id))
         return
     if d != "home" and not await require_subscription(update,context):
         return
@@ -814,7 +845,7 @@ async def cb(update, context):
 
     if d == "help":
         await q.edit_message_text(
-            "ℹ️ <b>YORDAM</b>\n\n"
+            "? <b>Yordam</b>\n\n"
             "Tugmani bosasiz → bot kerakli matn/rasm/URLni so'raydi → "
             "funksiya natijani qaytaradi.",
             parse_mode="HTML",reply_markup=home_kb()
@@ -824,7 +855,7 @@ async def cb(update, context):
     # ---------------- AI ----------------
     if d == "menu_ai":
         await q.edit_message_text(
-            "🤖 <b>AI MARKAZI</b>\n\nFunksiyani tanlang:",
+            "◈ <b>Ai studio</b>\n\nYaratish, yozish, tarjima va kod uchun vositalar.\nKerakli xizmatni tanlang.",
             parse_mode="HTML",reply_markup=ai_kb()
         ); return
 
@@ -876,7 +907,7 @@ async def cb(update, context):
     # ---------------- DOWNLOADER ----------------
     if d == "menu_dl":
         await q.edit_message_text(
-            "📥 <b>DOWNLOADER</b>\n\nPlatformani tanlang yoki Universal URLni bosing:",
+            "↗ <b>Yuklash</b>\n\nPlatformani tanlang yoki universal havolani yuboring.",
             parse_mode="HTML",reply_markup=dl_kb()
         ); return
 
@@ -900,7 +931,7 @@ async def cb(update, context):
     # ---------------- MUSIC ----------------
     if d == "menu_music":
         await q.edit_message_text(
-            "🎵 <b>MUSIQA MARKAZI</b>\n\nFunksiyani tanlang:",
+            "♫ <b>Musiqa</b>\n\nQidiring, tinglang va kerakli trekni tanlang.",
             parse_mode="HTML",reply_markup=music_kb()
         ); return
 
@@ -952,7 +983,7 @@ async def cb(update, context):
     # ---------------- GAMES ----------------
     if d == "menu_games":
         await q.edit_message_text(
-            "🎮 <b>O'YINLAR</b>\n\nO'yinni tanlang:",
+            "◇ <b>O‘yinlar</b>\n\nTezkor o‘yinlardan birini tanlang.",
             parse_mode="HTML",reply_markup=games_kb()
         ); return
 
@@ -1136,7 +1167,7 @@ async def cb(update, context):
         status="🟢 Yoqilgan" if enabled else "🔴 O'chirilgan"
         own="" if not is_vip(user.id) else "\n\n✅ Sizda VIP faol."
         buy_button=[] if is_vip(user.id) else [('👑 VIP sotib olish','vip_buy')]
-        await q.edit_message_text(f"👑 <b>VIP</b>\n\nHolat: {status}\n💳 Narx: <b>{price:,} UZS</b>\n📅 Muddat: <b>{days} kun</b>{own}",parse_mode='HTML',reply_markup=kb(([buy_button] if buy_button else [])+[[('🔙 Bosh menyu','home_reply')]])); return
+        await q.edit_message_text(f"👑 <b>VIP</b>\n\nHolat: {status}\n💳 Narx: <b>{price:,} UZS</b>\n📅 Muddat: <b>{days} kun</b>{own}",parse_mode='HTML',reply_markup=kb(([buy_button] if buy_button else [])+[[('‹ Bosh sahifa','home_reply')]])); return
 
     # ---------------- SETTINGS ----------------
     if d=="menu_settings":
@@ -1279,16 +1310,16 @@ async def text_menu_dispatch(update,context,d):
     class Q: pass
     # Use a lightweight synthetic callback object by duplicating only the main-menu screens.
     screens={
-        "menu_ai":("🤖 <b>AI MARKAZI</b>\n\nFunksiyani tanlang:",ai_kb()),
-        "menu_dl":("📥 <b>DOWNLOADER</b>\n\nPlatformani tanlang yoki Universal URLni bosing:",dl_kb()),
-        "menu_music":("🎵 <b>MUSIQA MARKAZI</b>\n\nFunksiyani tanlang:",music_kb()),
-        "menu_media":("🖼 <b>MEDIA MARKAZI</b>\n\nOperatsiyani tanlang, keyin rasm yuboring:",media_kb()),
-        "menu_games":("🎮 <b>O'YINLAR</b>\n\nO'yinni tanlang:",games_kb()),
+        "menu_ai":("◈ <b>Ai studio</b>\n\nYaratish, yozish, tarjima va kod uchun vositalar.\nKerakli xizmatni tanlang.",ai_kb()),
+        "menu_dl":("↗ <b>Yuklash</b>\n\nPlatformani tanlang yoki universal havolani yuboring.",dl_kb()),
+        "menu_music":("♫ <b>Musiqa</b>\n\nQidiring, tinglang va kerakli trekni tanlang.",music_kb()),
+        "menu_media":("◌ <b>Media</b>\n\nFaylni yuboring — kerakli ishlovni tanlang.",media_kb()),
+        "menu_games":("◇ <b>O‘yinlar</b>\n\nTezkor o‘yinlardan birini tanlang.",games_kb()),
         "menu_tools":("🛠 <b>TOOLS MARKAZI</b>\n\nKerakli vositani tanlang:",tools_kb()),
         "menu_search":(f"🔎 <b>QIDIRUV</b>\n\nInline rejimdan foydalaning:\n<code>{bot_username_text()} 25+35</code>\n<code>{bot_username_text()} musiqa Artist</code>",back()),
         "menu_group":("👥 <b>GURUH BOSHQARUVI</b>\n\nBot guruhda admin bo'lsa moderatsiya funksiyalari ishlaydi.",group_kb()),
         "menu_wallet":(f"💰 <b>HAMYON</b>\n\n💳 Balans: <b>{balance_uzs(update.effective_user.id):,} UZS</b>",wallet_kb(update.effective_user.id)),
-        "menu_vip":(f"👑 <b>VIP</b>\n\n💳 Narx: <b>{int(get_config('vip_price_uzs','20000')):,} UZS</b>\n📅 Muddat: <b>{int(get_config('vip_days','30'))} kun</b>" + ("\n\n✅ Sizda VIP faol." if is_vip(update.effective_user.id) else ""), kb(([[("👑 VIP sotib olish","vip_buy")]] if not is_vip(update.effective_user.id) else [])+[[('🔙 Bosh menyu','home_reply')]])),
+        "menu_vip":(f"👑 <b>VIP</b>\n\n💳 Narx: <b>{int(get_config('vip_price_uzs','20000')):,} UZS</b>\n📅 Muddat: <b>{int(get_config('vip_days','30'))} kun</b>" + ("\n\n✅ Sizda VIP faol." if is_vip(update.effective_user.id) else ""), kb(([[("👑 VIP sotib olish","vip_buy")]] if not is_vip(update.effective_user.id) else [])+[[('‹ Bosh sahifa','home_reply')]])),
         "menu_settings":("⚙️ <b>SOZLAMALAR</b>\n\nTanlang:",settings_kb()),
     }
     if d in screens:
