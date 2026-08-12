@@ -1,0 +1,7 @@
+python-telegram-bot>=21,<23
+aiohttp
+Pillow
+qrcode[pil]
+yt-dlp
+deep-translator
+pytesseract

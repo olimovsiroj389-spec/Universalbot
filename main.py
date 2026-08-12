@@ -54,12 +54,11 @@ from telegram.ext import (
 # deep-translator
 # ============================================================
 
-TOKEN = "8797534923:AAHX89hOt0p_coeYN7LYPK5IEE6-tok5_eg"
+TOKEN = "8797534923:AAF-cYvCj5Z0fg7rICBGmviNfu1uLmqA5aE"
 ADMIN_ID = 8824266579
-OPENAI_API_KEY = "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"
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-MUSIC_API_KEY = "AIzaSyBCjO4wBBcQkI9Q66bqKmhJWJHz-cMzH9Q"
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
+OPENROUTER_API_KEY = "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"
+OPENROUTER_MODEL = "openrouter/free"
+JAMENDO_CLIENT_ID = "95572ec9"
 DB_FILE = os.getenv("DB_FILE", "hammasi_birda.db")
 
 logging.basicConfig(
@@ -376,28 +375,45 @@ def admin_reply_kb():
     ],resize_keyboard=True,is_persistent=True)
 
 async def subscription_status(bot,user_id):
-    channel_id=get_config("force_channel_id")
-    if not channel_id: return True
+    channel_id=get_config("force_channel_id") or os.getenv("FORCE_CHANNEL_ID", "")
+    if not channel_id:
+        return True
     try:
-        m=await bot.get_chat_member(int(channel_id),user_id)
-        return m.status in (ChatMemberStatus.MEMBER,ChatMemberStatus.ADMINISTRATOR,ChatMemberStatus.OWNER)
+        try:
+            chat_id=int(channel_id)
+        except (TypeError, ValueError):
+            chat=await bot.get_chat(str(channel_id))
+            chat_id=chat.id
+        m=await bot.get_chat_member(chat_id,user_id)
+        if m.status in (ChatMemberStatus.MEMBER,ChatMemberStatus.ADMINISTRATOR,ChatMemberStatus.OWNER):
+            return True
+        if m.status == ChatMemberStatus.RESTRICTED:
+            return bool(getattr(m,"is_member",False))
+        return False
     except Exception as e:
-        log.warning("Force subscription check: %s",e); return False
+        log.warning("Force subscription check: %s",e)
+        return False
 
 async def require_subscription(update,context):
     user=update.effective_user
-    if not user or is_admin_user(user.id) or await subscription_status(context.bot,user.id): return True
-    link=get_config("force_channel_link")
+    if not user or is_admin_user(user.id) or await subscription_status(context.bot,user.id):
+        return True
+    link=get_config("force_channel_link") or os.getenv("FORCE_CHANNEL_LINK", "")
     if not link:
-        username=get_config("force_channel_username")
-        if username: link="https://t.me/"+username.lstrip("@")
+        username=get_config("force_channel_username") or os.getenv("FORCE_CHANNEL_USERNAME", "")
+        if username:
+            link="https://t.me/"+username.lstrip("@")
     buttons=[]
-    if link: buttons.append([InlineKeyboardButton("📣 Kanalga obuna bo'lish",url=link)])
-    buttons.append([InlineKeyboardButton("🔄 Tekshirish",callback_data="check_subscription")])
-    text="📣 <b>Majburiy obuna</b>\n\nBotdan foydalanish uchun kanalga obuna bo'ling."
-    if update.callback_query: await update.callback_query.edit_message_text(text,parse_mode="HTML",reply_markup=InlineKeyboardMarkup(buttons))
-    elif update.effective_message: await update.effective_message.reply_text(text,parse_mode="HTML",reply_markup=InlineKeyboardMarkup(buttons))
+    if link:
+        buttons.append([InlineKeyboardButton("📣 Kanalga obuna bo'lish",url=link)])
+    buttons.append([InlineKeyboardButton("🔄 Obunani tekshirish",callback_data="check_subscription")])
+    text="📣 <b>Majburiy obuna</b>\n\nBotdan foydalanishdan oldin quyidagi kanalga obuna bo'ling."
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text,parse_mode="HTML",reply_markup=InlineKeyboardMarkup(buttons))
+    elif update.effective_message:
+        await update.effective_message.reply_text(text,parse_mode="HTML",reply_markup=InlineKeyboardMarkup(buttons))
     return False
+
 
 BOT_USERNAME=os.getenv("BOT_USERNAME","UniversalProBot")
 
@@ -469,44 +485,46 @@ def calc(expr):
 # ============================================================
 
 async def ai(prompt):
-    if not OPENAI_API_KEY:
-        return (
-            "🤖 <b>AI API ulanmagan.</b>\n\n"
-            "OPENAI_API_KEY berilganda bu funksiya haqiqiy AI "
-            "javobini qaytaradi."
-        )
+    if not OPENROUTER_API_KEY:
+        return "🤖 <b>AI API ulanmagan.</b>"
     if aiohttp is None:
         return "❌ aiohttp o'rnatilmagan."
 
-    url = "https://api.openai.com/v1/chat/completions"
+    url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "X-Title": "Hammasi Birda Bot",
     }
     payload = {
-        "model": OPENAI_MODEL,
+        "model": OPENROUTER_MODEL,
         "messages": [
             {
                 "role":"system",
-                "content":"HammasiBirdaBot yordamchisisiz. O'zbek tilida aniq javob bering."
+                "content":"HammasiBirdaBot AI yordamchisisiz. O'zbek tilida aniq, foydali va xavfsiz javob bering."
             },
             {"role":"user","content":prompt}
         ],
-        "temperature":0.7
+        "temperature":0.7,
     }
-
     try:
-        timeout = aiohttp.ClientTimeout(total=60)
-        async with aiohttp.ClientSession(timeout=timeout) as s:
-            async with s.post(url,headers=headers,json=payload) as r:
-                data = await r.json()
+        timeout=aiohttp.ClientTimeout(total=90)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url,headers=headers,json=payload) as r:
+                data=await r.json(content_type=None)
                 if r.status != 200:
-                    log.error(data)
-                    return "❌ AI API kaliti noto'g'ri yoki muddati tugagan." if r.status in (401,403) else "❌ AI API xatolik qaytardi."
-                return data["choices"][0]["message"]["content"].strip()
+                    log.error("OpenRouter %s: %s",r.status,data)
+                    if r.status in (401,403):
+                        return "❌ OpenRouter API key noto'g'ri yoki faol emas."
+                    if r.status == 429:
+                        return "⏳ AI bepul limitiga vaqtincha yetildi. Birozdan keyin qayta urinib ko'ring."
+                    return "❌ AI API xatolik qaytardi."
+                content=((data.get("choices") or [{}])[0].get("message") or {}).get("content")
+                return (content or "❌ AI javob qaytarmadi.").strip()
     except Exception as e:
         log.exception(e)
         return "❌ AI bilan ulanishda xatolik."
+
 
 async def translate(target,text):
     if GoogleTranslator is None:
@@ -515,136 +533,82 @@ async def translate(target,text):
         lambda: GoogleTranslator(source="auto",target=target).translate(text)
     )
 
-async def ytm_search_api(query, search_type="all", limit=8):
-    """Search YouTube Music through YTM API. No API key is required."""
-    if aiohttp is None:
+async def jamendo_search_api(query, limit=8, artist_only=False, featured=False):
+    """Search Jamendo's catalog. Only tracks that allow application downloads are returned."""
+    if aiohttp is None or not JAMENDO_CLIENT_ID:
         return []
-
-    def collect_items(obj, out):
-        # YTM API response shape can change, so collect useful music objects
-        # recursively instead of depending on one exact JSON layout.
-        if isinstance(obj, list):
-            for item in obj:
-                collect_items(item, out)
-            return
-        if not isinstance(obj, dict):
-            return
-
-        title = obj.get("title") or obj.get("name")
-        if isinstance(title, dict):
-            title = title.get("text") or title.get("runs", [{}])[0].get("text")
-        if title:
-            artists = obj.get("artists") or obj.get("artist") or obj.get("author")
-            artist = ""
-            if isinstance(artists, list):
-                names = []
-                for a in artists:
-                    if isinstance(a, dict):
-                        n = a.get("name") or a.get("title")
-                        if n:
-                            names.append(str(n))
-                    elif a:
-                        names.append(str(a))
-                artist = ", ".join(names)
-            elif isinstance(artists, dict):
-                artist = str(artists.get("name") or artists.get("title") or "")
-            elif artists:
-                artist = str(artists)
-
-            url = obj.get("url") or obj.get("link") or obj.get("videoUrl")
-            video_id = obj.get("videoId") or obj.get("video_id")
-            if not url and video_id:
-                url = f"https://www.youtube.com/watch?v={video_id}"
-
-            kind = str(obj.get("type") or obj.get("resultType") or "").lower()
-            if kind or artist or url:
-                out.append({
-                    "title": str(title),
-                    "artist": artist,
-                    "url": url or "",
-                    "type": kind or "music",
-                })
-
-        for value in obj.values():
-            if isinstance(value, (dict, list)):
-                collect_items(value, out)
-
+    params={
+        "client_id":JAMENDO_CLIENT_ID,
+        "format":"json",
+        "limit":min(max(int(limit),1),20),
+        "type":"single albumtrack",
+        "audioformat":"mp31",
+        "audiodlformat":"mp32",
+    }
+    if featured:
+        params["featured"]="1"
+        params["boost"]="popularity_month"
+    elif artist_only:
+        params["artist_name"]=query
+    else:
+        params["search"]=query
     try:
-        params = {"q": query, "type": search_type}
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-            async with session.get(
-                "https://ytm.vrma.dev/search",
-                params=params,
-                headers={"User-Agent": "HammasiBirdaBot/1.0"}
-            ) as response:
-                if response.status != 200:
-                    log.warning("YTM API status: %s", response.status)
+            async with session.get("https://api.jamendo.com/v3.0/tracks/",params=params,headers={"User-Agent":"HammasiBirdaBot/1.0"}) as r:
+                data=await r.json(content_type=None)
+                if r.status != 200:
+                    log.warning("Jamendo API %s: %s",r.status,data)
                     return []
-                data = await response.json(content_type=None)
-
-        raw = []
-        collect_items(data, raw)
-
-        results = []
-        seen = set()
-        for item in raw:
-            key = (item["title"].strip().lower(), item["artist"].strip().lower(), item["url"])
-            if key in seen:
+        results=[]
+        for x in data.get("results",[]):
+            download_url=x.get("audiodownload") or ""
+            if not download_url or x.get("audiodownload_allowed") is False:
                 continue
-            seen.add(key)
-            results.append(item)
-            if len(results) >= limit:
+            results.append({
+                "provider":"jamendo",
+                "id":str(x.get("id","")),
+                "title":x.get("name") or "Noma'lum",
+                "artist":x.get("artist_name") or "",
+                "url":download_url,
+                "page_url":x.get("shareurl") or x.get("shorturl") or "",
+                "image":x.get("album_image") or x.get("image") or "",
+            })
+            if len(results)>=limit:
                 break
         return results
     except Exception as e:
-        log.warning("YTM search: %s", e)
+        log.warning("Jamendo search: %s",e)
         return []
-
 
 async def music_search_api(query, limit=5):
-    """YTM first, then Deezer, then YouTube Data API fallback."""
-    ytm = await ytm_search_api(query, "all", limit)
-    if ytm:
-        return ytm
+    return await jamendo_search_api(query,limit)
 
+async def download_jamendo_audio(url,title="Audio",track_id=""):
     if aiohttp is None:
-        return []
-    results = []
+        raise RuntimeError("aiohttp o'rnatilmagan.")
+    os.makedirs("downloads",exist_ok=True)
+    safe=re.sub(r"[^a-zA-Z0-9._-]+","_",title).strip("._")[:70] or "audio"
+    suffix=track_id or secrets.token_hex(4)
+    filename=os.path.join("downloads",f"{safe}-{suffix}.mp3")
     try:
-        url = f"https://api.deezer.com/search?q={quote_plus(query)}&limit={limit}"
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as s:
-            async with s.get(url) as r:
-                if r.status == 200:
-                    data = await r.json()
-                    for x in data.get("data", [])[:limit]:
-                        results.append({
-                            "title": x.get("title", "Noma'lum"),
-                            "artist": (x.get("artist") or {}).get("name", ""),
-                            "url": x.get("link", ""),
-                        })
-    except Exception as e:
-        log.warning("Deezer search: %s", e)
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as session:
+            async with session.get(url,headers={"User-Agent":"HammasiBirdaBot/1.0"}) as r:
+                if r.status != 200:
+                    raise RuntimeError(f"Jamendo audio HTTP {r.status}")
+                total=0
+                with open(filename,"wb") as f:
+                    async for chunk in r.content.iter_chunked(64*1024):
+                        total+=len(chunk)
+                        if total>49*1024*1024:
+                            raise RuntimeError("Audio fayli 49 MB dan katta.")
+                        f.write(chunk)
+        return filename,title
+    except Exception:
+        if os.path.exists(filename):
+            try: os.remove(filename)
+            except Exception: pass
+        raise
 
-    if results or not YOUTUBE_API_KEY:
-        return results
-
-    try:
-        params = {"part":"snippet","q":query,"type":"video","maxResults":limit,"key":YOUTUBE_API_KEY}
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as s:
-            async with s.get("https://www.googleapis.com/youtube/v3/search", params=params) as r:
-                data = await r.json()
-                for x in data.get("items", []):
-                    vid=x.get("id",{}).get("videoId")
-                    sn=x.get("snippet",{})
-                    if vid:
-                        results.append({
-                            "title":sn.get("title","Noma'lum"),
-                            "artist":sn.get("channelTitle",""),
-                            "url":f"https://www.youtube.com/watch?v={vid}"
-                        })
-    except Exception as e:
-        log.warning("YouTube search: %s", e)
-    return results
 
 async def music_lyrics_api(query):
     """LRCLIB lyrics search; no key required."""
@@ -801,7 +765,8 @@ async def cb(update, context):
     d = q.data
     if d == "check_subscription":
         if await subscription_status(context.bot,user.id):
-            await q.edit_message_text("✅ Obuna tasdiqlandi! /start ni bosing.")
+            await q.edit_message_text("✅ <b>Obuna tasdiqlandi!</b>\n\nEndi botdan foydalanishingiz mumkin.",parse_mode="HTML",reply_markup=home_kb(user.id))
+            await context.bot.send_message(user.id,"🏠 Bosh menyu",reply_markup=home_reply_kb(user.id))
         else:
             await require_subscription(update,context)
         return
@@ -833,6 +798,11 @@ async def cb(update, context):
         return
     if d == "vip_buy":
         enabled=get_config('vip_enabled','1')=='1'; price=int(get_config('vip_price_uzs','20000') or 20000); days=int(get_config('vip_days','30') or 30)
+        if is_vip(user.id):
+            con=db(); row=con.execute("SELECT expires_at FROM vip_users WHERE user_id=?",(user.id,)).fetchone(); con.close()
+            expires=row[0] if row else ""
+            await q.edit_message_text(f"👑 <b>Sizda VIP allaqachon faol.</b>\n\n⏳ Tugash vaqti: <b>{expires.replace('T',' ')}</b>",parse_mode="HTML",reply_markup=back())
+            return
         if not enabled:
             await q.edit_message_text("❌ VIP hozircha o'chirilgan.",reply_markup=back()); return
         bal=balance_uzs(user.id)
@@ -883,7 +853,10 @@ async def cb(update, context):
         status = await q.message.reply_text("📥 <b>Audio yuklanmoqda...</b> ⏳", parse_mode="HTML")
         filename = None
         try:
-            filename,title=await download_audio(item["url"])
+            if item.get("provider")=="jamendo":
+                filename,title=await download_jamendo_audio(item["url"],item.get("title","Audio"),item.get("id",""))
+            else:
+                filename,title=await download_audio(item["url"])
             if not os.path.exists(filename): raise RuntimeError("Audio fayli topilmadi.")
             if os.path.getsize(filename)>49*1024*1024: raise RuntimeError("Audio fayli juda katta.")
             with open(filename,"rb") as f:
@@ -948,12 +921,8 @@ async def cb(update, context):
         await q.edit_message_text(prompts[d],reply_markup=back()); return
 
     if d == "music_trend":
-        await q.edit_message_text(
-            "🔥 <b>TREND</b>\n\n"
-            "Trend ro'yxatini chiqarish uchun musiqa provider API kerak. "
-            "API berilganda bu tugma real natijalarni chiqaradi.",
-            parse_mode="HTML",reply_markup=back()
-        ); return
+        context.user_data["mode"]="music_trend"
+        await q.edit_message_text("🔥 <b>TREND</b>\n\nJanr yoki mavzuni yuboring. Masalan: <code>pop</code>, <code>rock</code>, <code>relaxation</code>.",parse_mode="HTML",reply_markup=back()); return
 
     if d == "music_help":
         await q.edit_message_text(
@@ -1166,7 +1135,8 @@ async def cb(update, context):
         enabled=get_config("vip_enabled","1")=="1"; price=int(get_config("vip_price_uzs","20000") or 20000); days=int(get_config("vip_days","30") or 30)
         status="🟢 Yoqilgan" if enabled else "🔴 O'chirilgan"
         own="" if not is_vip(user.id) else "\n\n✅ Sizda VIP faol."
-        await q.edit_message_text(f"👑 <b>VIP</b>\n\nHolat: {status}\n💳 Narx: <b>{price:,} UZS</b>\n📅 Muddat: <b>{days} kun</b>{own}",parse_mode='HTML',reply_markup=kb([[('👑 VIP sotib olish','vip_buy')],[('🔙 Bosh menyu','home_reply')]])); return
+        buy_button=[] if is_vip(user.id) else [('👑 VIP sotib olish','vip_buy')]
+        await q.edit_message_text(f"👑 <b>VIP</b>\n\nHolat: {status}\n💳 Narx: <b>{price:,} UZS</b>\n📅 Muddat: <b>{days} kun</b>{own}",parse_mode='HTML',reply_markup=kb(([buy_button] if buy_button else [])+[[('🔙 Bosh menyu','home_reply')]])); return
 
     # ---------------- SETTINGS ----------------
     if d=="menu_settings":
@@ -1318,7 +1288,7 @@ async def text_menu_dispatch(update,context,d):
         "menu_search":(f"🔎 <b>QIDIRUV</b>\n\nInline rejimdan foydalaning:\n<code>{bot_username_text()} 25+35</code>\n<code>{bot_username_text()} musiqa Artist</code>",back()),
         "menu_group":("👥 <b>GURUH BOSHQARUVI</b>\n\nBot guruhda admin bo'lsa moderatsiya funksiyalari ishlaydi.",group_kb()),
         "menu_wallet":(f"💰 <b>HAMYON</b>\n\n💳 Balans: <b>{balance_uzs(update.effective_user.id):,} UZS</b>",wallet_kb(update.effective_user.id)),
-        "menu_vip":(f"👑 <b>VIP</b>\n\n💳 Narx: <b>{int(get_config('vip_price_uzs','20000')):,} UZS</b>\n📅 Muddat: <b>{int(get_config('vip_days','30'))} kun</b>",kb([[('👑 VIP sotib olish','vip_buy')],[('🔙 Bosh menyu','home_reply')]])),
+        "menu_vip":(f"👑 <b>VIP</b>\n\n💳 Narx: <b>{int(get_config('vip_price_uzs','20000')):,} UZS</b>\n📅 Muddat: <b>{int(get_config('vip_days','30'))} kun</b>" + ("\n\n✅ Sizda VIP faol." if is_vip(update.effective_user.id) else ""), kb(([[("👑 VIP sotib olish","vip_buy")]] if not is_vip(update.effective_user.id) else [])+[[('🔙 Bosh menyu','home_reply')]])),
         "menu_settings":("⚙️ <b>SOZLAMALAR</b>\n\nTanlang:",settings_kb()),
     }
     if d in screens:
@@ -1550,37 +1520,40 @@ async def text_router(update,context):
             await status.edit_text(f"❌ Yuklab bo'lmadi:\n{str(e)[:500]}")
         return
 
-    if mode in ("music_search", "music_artist"):
-        search_type = "all" if mode == "music_search" else "artists"
-        results = await ytm_search_api(text, search_type, 8)
+    if mode == "music_trend":
+        results = await jamendo_search_api(text, 8, featured=True)
         if not results:
-            # Artist-only search may not be supported by every YTM API version.
-            # Fall back to the general search so the button still works.
-            results = await music_search_api(text, 8)
+            await update.message.reply_text("❌ Trend musiqalarini olib bo'lmadi.",reply_markup=music_kb()); return
+        buttons=[]
+        lines=["🔥 <b>TREND MUSIQALAR</b>","","📚 Manba: Jamendo"]
+        for i,item in enumerate(results,1):
+            lines.append(f"{i}. <b>{item.get('title','Noma’lum')}</b> — {item.get('artist','')}")
+            key=secrets.token_urlsafe(8); context.user_data.setdefault("audio_store",{})[key]=item
+            buttons.append([InlineKeyboardButton(f"📥 {i}. {item.get('title','Audio')[:28]}",callback_data=f"audio_dl:{key}")])
+        await update.message.reply_text("\n".join(lines)[:4000],parse_mode="HTML",reply_markup=InlineKeyboardMarkup(buttons)); add_xp(user.id,3); return
+
+    if mode in ("music_search", "music_artist"):
+        results = await jamendo_search_api(text, 8, artist_only=(mode=="music_artist"))
+        if not results and mode=="music_artist":
+            results = await jamendo_search_api(text, 8, artist_only=False)
         if not results:
             await update.message.reply_text(
-                "❌ Musiqa topilmadi yoki YTM API vaqtincha javob bermayapti.",
+                "❌ Jamendo'da musiqa topilmadi yoki API vaqtincha javob bermayapti.",
                 reply_markup=music_kb()
             )
             return
 
-        lines = ["🎵 <b>MUSIQA NATIJALARI</b>", ""]
-        for i, item in enumerate(results, 1):
-            title = item.get("title", "Noma'lum")
-            artist = item.get("artist", "")
-            url = item.get("url", "")
-            line = f"{i}. <b>{title}</b>"
-            if artist:
-                line += f" — {artist}"
-            if url:
-                line += f"\n   🔗 {url}"
-            lines.append(line)
-        await update.message.reply_text(
-            "\n".join(lines)[:4000],
-            parse_mode="HTML",
-            disable_web_page_preview=True
-        )
-        add_xp(user.id, 3)
+        lines=["🎵 <b>MUSIQA NATIJALARI</b>","","📚 Manba: Jamendo"]
+        buttons=[]
+        for i,item in enumerate(results,1):
+            title=item.get("title","Noma'lum")
+            artist=item.get("artist","")
+            lines.append(f"{i}. <b>{title}</b>" + (f" — {artist}" if artist else ""))
+            key=secrets.token_urlsafe(8)
+            context.user_data.setdefault("audio_store",{})[key]=item
+            buttons.append([InlineKeyboardButton(f"📥 {i}. {title[:28]}",callback_data=f"audio_dl:{key}")])
+        await update.message.reply_text("\n".join(lines)[:4000],parse_mode="HTML",reply_markup=InlineKeyboardMarkup(buttons))
+        add_xp(user.id,3)
         return
 
     if mode == "music_lyrics":
@@ -1598,9 +1571,7 @@ async def text_router(update,context):
         return
 
     if mode == "music_audio":
-        results = await ytm_search_api(text, "songs", 1)
-        if not results:
-            results = await music_search_api(text, 1)
+        results = await jamendo_search_api(text, 1)
         if not results:
             await update.message.reply_text("❌ Qo'shiq topilmadi.", reply_markup=music_kb())
             return
