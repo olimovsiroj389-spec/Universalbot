@@ -332,13 +332,13 @@ def is_admin_user(user_id):
 
 LANGS={
     "uz": {
-        "ai":"🤖 AI","dl":"📥 Downloader","music":"🎵 Musiqa","media":"🖼 Media","games":"🎮 O'yinlar","wallet":"💰 Hamyon","tools":"🛠 Tools","search":"🔎 Qidiruv","group":"👥 Guruh","bonus":"🎁 Bonus","vip":"👑 VIP","settings":"⚙️ Sozlamalar","profile":"👤 Profil","help":"ℹ️ Yordam","back":"🔙 Bosh menyu","lang":"🌐 Til","deposit":"💳 Pul kiritish","buy_vip":"👑 VIP sotib olish"
+        "ai":"◈ Ai studio","dl":"↗ Yuklash","music":"♫ Musiqa","media":"▧ Media","games":"◇ O'yinlar","wallet":"◫ Hamyon","tools":"⌘ Asboblar","search":"⌕ Qidiruv","group":"◎ Guruh","bonus":"✦ Bonus","vip":"♕ Vip","settings":"⚙ Sozlamalar","profile":"♙ Profil","help":"ⓘ Yordam","back":"🔙 Bosh menyu","lang":"🌐 Til","deposit":"💳 Pul kiritish","buy_vip":"♕ Vip sotib olish"
     },
     "ru": {
-        "ai":"🤖 AI","dl":"📥 Загрузчик","music":"🎵 Музыка","media":"🖼 Медиа","games":"🎮 Игры","wallet":"💰 Кошелёк","tools":"🛠 Инструменты","search":"🔎 Поиск","group":"👥 Группа","bonus":"🎁 Бонус","vip":"👑 VIP","settings":"⚙️ Настройки","profile":"👤 Профиль","help":"ℹ️ Помощь","back":"🔙 Главное меню","lang":"🌐 Язык","deposit":"💳 Пополнить баланс","buy_vip":"👑 Купить VIP"
+        "ai":"◈ Ai studio","dl":"↗ Загрузить","music":"♫ Музыка","media":"▧ Медиа","games":"◇ Игры","wallet":"◫ Кошелёк","tools":"⌘ Инструменты","search":"⌕ Поиск","group":"◎ Группа","bonus":"✦ Бонус","vip":"♕ Vip","settings":"⚙ Настройки","profile":"♙ Профиль","help":"ⓘ Помощь","back":"🔙 Главное меню","lang":"🌐 Язык","deposit":"💳 Пополнить баланс","buy_vip":"♕ Купить Vip"
     },
     "en": {
-        "ai":"🤖 AI","dl":"📥 Downloader","music":"🎵 Music","media":"🖼 Media","games":"🎮 Games","wallet":"💰 Wallet","tools":"🛠 Tools","search":"🔎 Search","group":"👥 Group","bonus":"🎁 Bonus","vip":"👑 VIP","settings":"⚙️ Settings","profile":"👤 Profile","help":"ℹ️ Help","back":"🔙 Main menu","lang":"🌐 Language","deposit":"💳 Add funds","buy_vip":"👑 Buy VIP"
+        "ai":"◈ Ai studio","dl":"↗ Upload","music":"♫ Music","media":"▧ Media","games":"◇ Games","wallet":"◫ Wallet","tools":"⌘ Tools","search":"⌕ Search","group":"◎ Group","bonus":"✦ Bonus","vip":"♕ Vip","settings":"⚙ Settings","profile":"♙ Profile","help":"ⓘ Help","back":"🔙 Main menu","lang":"🌐 Language","deposit":"💳 Add funds","buy_vip":"♕ Buy Vip"
     }
 }
 
@@ -433,7 +433,15 @@ def back2(*rows): return kb(list(rows)+[[('🔙 Bosh menyu','home_reply')]])
 
 def home_kb(user_id=None):
     L=LANGS[user_lang(user_id) if user_id else "uz"]
-    return kb([[(L["ai"],"menu_ai"),(L["dl"],"menu_dl")],[(L["music"],"menu_music"),(L["media"],"menu_media")],[(L["games"],"menu_games"),(L["wallet"],"menu_wallet")],[(L["tools"],"menu_tools"),(L["search"],"menu_search")],[(L["group"],"menu_group"),(L["bonus"],"bonus")],[(L["vip"],"menu_vip"),(L["settings"],"menu_settings")],[(L["profile"],"profile"),(L["help"],"help")]])
+    return kb([
+        [(L["ai"],"menu_ai"),(L["dl"],"menu_dl")],
+        [(L["music"],"menu_music"),(L["media"],"menu_media")],
+        [(L["games"],"menu_games"),(L["wallet"],"menu_wallet")],
+        [(L["tools"],"menu_tools"),(L["search"],"menu_search")],
+        [(L["group"],"menu_group"),(L["bonus"],"bonus")],
+        [(L["vip"],"menu_vip"),(L["settings"],"menu_settings")],
+        [(L["profile"],"profile"),(L["help"],"help")]
+    ])
 
 def ai_kb(): return kb([[('💬 AI Chat','ai_chat'),('✍️ Matn yozish','ai_write')],[('📝 Qisqartirish','ai_summary'),('🌐 Tarjima','ai_translate')],[('💻 Kod yordamchi','ai_code'),('🎯 Prompt generator','ai_prompt')],[('🔙 Bosh menyu','home_reply')]])
 def dl_kb(): return kb([
