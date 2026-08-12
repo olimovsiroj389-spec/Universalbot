@@ -54,7 +54,7 @@ from telegram.ext import (
 # deep-translator
 # ============================================================
 
-TOKEN = "8797534923:AAGtJNNLNXFw2q2geYYaN_a4nVDPwLGMJ6A"
+TOKEN = "8797534923:AAGVinvLINKVYtiz2HQ-WXtaJa9oU3B_5KA"
 ADMIN_ID = 8824266579
 OPENROUTER_API_KEY = "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"
 OPENROUTER_MODEL = "openrouter/free"
@@ -436,7 +436,12 @@ def home_kb(user_id=None):
     return kb([[(L["ai"],"menu_ai"),(L["dl"],"menu_dl")],[(L["music"],"menu_music"),(L["media"],"menu_media")],[(L["games"],"menu_games"),(L["wallet"],"menu_wallet")],[(L["tools"],"menu_tools"),(L["search"],"menu_search")],[(L["group"],"menu_group"),(L["bonus"],"bonus")],[(L["vip"],"menu_vip"),(L["settings"],"menu_settings")],[(L["profile"],"profile"),(L["help"],"help")]])
 
 def ai_kb(): return kb([[('💬 AI Chat','ai_chat'),('✍️ Matn yozish','ai_write')],[('📝 Qisqartirish','ai_summary'),('🌐 Tarjima','ai_translate')],[('💻 Kod yordamchi','ai_code'),('🎯 Prompt generator','ai_prompt')],[('🔙 Bosh menyu','home_reply')]])
-def dl_kb(): return kb([[('▶️ YouTube','dl_youtube'),('📸 Instagram','dl_instagram')],[('🎵 TikTok','dl_tiktok'),('📘 Facebook','dl_facebook')],[('🔗 Universal URL','dl_url'),('ℹ️ Qoidalar','dl_rules')],[('🔙 Bosh menyu','home_reply')]])
+def dl_kb(): return kb([
+    [('◈ YouTube','dl_youtube'),('◈ Instagram','dl_instagram')],
+    [('◈ TikTok','dl_tiktok'),('◈ Facebook','dl_facebook')],
+    [('◇ Universal URL','dl_url'),('ⓘ Qoidalar','dl_rules')],
+    [('‹ Bosh sahifa','home_reply')]
+])
 def music_kb(): return kb([[ ("🔎 Qo'shiq qidirish","music_search"),("🎤 Artist","music_artist") ],[("🔥 Trend","music_trend"),("🎧 Audio","music_audio")],[("📃 Lyrics","music_lyrics"),("ℹ️ Yordam","music_help")],[("🔙 Bosh menyu","home_reply")]])
 def media_kb(): return kb([[('🗜 Siqish','media_compress'),("📐 O'lcham",'media_resize')],[('⚫ Qora-oq','media_gray'),('🔄 JPG/PNG','media_convert')],[('🔍 OCR','media_ocr'),('📄 PDF','media_pdf')],[('🔙 Bosh menyu','home_reply')]])
 def games_kb(): return kb([[('🎲 Zar','game_dice'),('🪙 Coin','game_coin')],[('🎰 Slot','game_slot'),('🧠 Son topish','game_guess')],[('🏆 TOP 10',"ranking"),("🎯 21 o'yini",'game_21')],[('🔙 Bosh menyu','home_reply')]])
@@ -879,23 +884,24 @@ async def cb(update, context):
     # ---------------- DOWNLOADER ----------------
     if d == "menu_dl":
         await q.edit_message_text(
-            "📥 <b>DOWNLOADER</b>\n\nPlatformani tanlang yoki Universal URLni bosing:",
+            "◈ <b>Downloader</b>\n\n"
+            "Kerakli platformani tanlang yoki havolani yuboring.",
             parse_mode="HTML",reply_markup=dl_kb()
         ); return
 
     if d in ("dl_youtube","dl_instagram","dl_tiktok","dl_facebook","dl_url"):
         context.user_data["mode"]="download"
         await q.edit_message_text(
-            "🔗 <b>URL yuboring</b>\n\n"
-            "Bot URLni yt-dlp orqali tekshiradi.\n"
-            "Telegram fayl hajmi va platforma cheklovlari amal qiladi.",
+            "◇ <b>Havola yuboring</b>\n\n"
+            "Video yoki media havolasini yuboring.\n"
+            "Bot uni mos formatda tayyorlaydi.",
             parse_mode="HTML",reply_markup=back()
         ); return
 
     if d == "dl_rules":
         await q.edit_message_text(
-            "ℹ️ <b>DOWNLOADER QOIDALARI</b>\n\n"
-            "Faqat yuklab olishga haqqingiz bo'lgan kontentdan foydalaning. "
+            "ⓘ <b>Qoidalar</b>\n\n"
+            "Faqat foydalanishga haqqingiz bo‘lgan kontentni yuklab oling.\n\n"
             "Platforma va mualliflik huquqi qoidalariga rioya qiling.",
             parse_mode="HTML",reply_markup=back()
         ); return
