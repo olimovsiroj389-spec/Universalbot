@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07070b">
+<title>AnimeHub</title>
+<link rel="stylesheet" href="/style.css">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+<div class="ambient a1"></div>
+<div class="ambient a2"></div>
+<div class="grain"></div>
+
+<header class="topbar wrap">
+  <button class="mini-brand" data-page="home">
+    <span class="brand-icon">A</span>
+    <span class="brand-copy">
+      <b>Anime<span>Hub</span></b>
+      <small>anime olami</small>
+    </span>
+  </button>
+  <button id="profileBtn" class="circle">◉</button>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <div class="hero-bg-art"></div>
+    <div class="hero-content">
+      <span class="tag">✦ O‘ZBEKCHA ANIME KATALOGI</span>
+      <h1>Anime dunyosiga<br><em>sho‘ng‘ing.</em></h1>
+      <p>Sevimli seriallaringizni qidiring, saqlang va keyingi qismni bir zumda davom ettiring.</p>
+      <div class="hero-stats">
+        <span>⚡ Tez qidiruv</span>
+        <span>♥ Shaxsiy kutubxona</span>
+        <span>✦ Premium</span>
+      </div>
+    </div>
+    <div class="orb"></div>
+  </section>
+
+  <section class="searchbox">
+    <span>⌕</span>
+    <input id="searchInput" placeholder="Anime nomini qidiring..." autocomplete="off">
+    <button id="clearBtn" class="clear hidden">×</button>
+    <button id="searchBtn">Qidirish</button>
+  </section>
+
+  <section id="homePage" class="page active">
+    <section class="section">
+      <div class="section-head">
+        <div><small>TOP TOMOSHALAR</small><h2>🔥 Mashhurlar</h2></div>
+        <button data-page="catalog" class="link-btn">Hammasi →</button>
+      </div>
+      <div id="popularGrid" class="hrow"></div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div><small>YANGILIKLAR</small><h2>🆕 Yangi qo‘shilgan</h2></div>
+        <button data-page="catalog" class="link-btn">Ko‘proq →</button>
+      </div>
+      <div id="newGrid" class="hrow"></div>
+    </section>
+
+    <section class="featured">
+      <div class="featured-star">✦</div>
+      <div class="featured-copy">
+        <small>PREMIUM TAYYOR</small>
+        <h3>Anime Pass</h3>
+        <p>Qo‘shimcha imkoniyatlar va premium bo‘limlar.</p>
+      </div>
+      <button data-page="pass">Ko‘rish</button>
+    </section>
+  </section>
+
+  <section id="searchPage" class="page">
+    <div class="page-head">
+      <div><small>QIDIRUV</small><h2>Natijalar</h2></div>
+      <span id="resultCount"></span>
+    </div>
+    <div id="searchGrid" class="grid"></div>
+  </section>
+
+  <section id="catalogPage" class="page">
+    <div class="page-head">
+      <div><small>KATALOG</small><h2>Barcha animelar</h2></div>
+    </div>
+    <div id="genreChips" class="chips"></div>
+    <div id="catalogGrid" class="grid"></div>
+  </section>
+
+  <section id="favoritesPage" class="page">
+    <div class="page-head"><div><small>SAQLANGANLAR</small><h2>❤️ Sevimlilar</h2></div></div>
+    <div id="favoritesGrid" class="grid"></div>
+  </section>
+
+  <section id="historyPage" class="page">
+    <div class="page-head"><div><small>DAVOM ETTIRISH</small><h2>🕘 Tarix</h2></div></div>
+    <div id="historyList"></div>
+  </section>
+
+  <section id="profilePage" class="page">
+    <section class="profile">
+      <div class="cover"></div>
+      <div class="profile-main">
+        <div id="avatar" class="avatar">A</div>
+        <div>
+          <h2 id="profileName">Mehmon</h2>
+          <span id="profileUsername">@guest</span>
+        </div>
+      </div>
+      <div class="profile-stats">
+        <div><b id="watched">0</b><small>Ko‘rilgan</small></div>
+        <div><b id="favs">0</b><small>Sevimli</small></div>
+        <div><b id="refs">0</b><small>Taklif</small></div>
+      </div>
+    </section>
+
+    <section class="menu">
+      <button data-page="favorites"><i class="purple">♡</i><span><b>Sevimlilar</b><small>Saqlangan animelar</small></span><strong>›</strong></button>
+      <button data-page="history"><i class="blue">◷</i><span><b>Tarix</b><small>Oxirgi ko‘rilgan qismlar</small></span><strong>›</strong></button>
+      <button data-page="pass"><i class="gold">✦</i><span><b>Anime Pass</b><small>Premium imkoniyatlar</small></span><strong>›</strong></button>
+    </section>
+  </section>
+
+  <section id="passPage" class="page">
+    <section class="pass-card">
+      <span class="premium-label">✦ PREMIUM</span>
+      <h1>Anime Pass</h1>
+      <p>Ko‘proq imkoniyat. Kamroq cheklov.</p>
+      <div id="passStatus" class="status">Tekshirilmoqda...</div>
+    </section>
+
+    <div class="page-head">
+      <div><small>REJALAR</small><h2>Pass tanlang</h2></div>
+    </div>
+    <div id="plans" class="plans"></div>
+    <div class="feature-list">
+      <span>✓ Premium qismlar</span>
+      <span>✓ Yangi kontentga erta kirish</span>
+      <span>✓ Kengaytirilgan tarix</span>
+      <span>✓ Qo‘shimcha qulayliklar</span>
+      <span>✓ Telegram Stars orqali to‘lov</span>
+    </div>
+  </section>
+</main>
+
+<nav class="bottom">
+  <button class="nav active" data-page="home"><b>⌂</b><small>Bosh sahifa</small></button>
+  <button class="nav" data-page="search"><b>⌕</b><small>Qidiruv</small></button>
+  <button class="nav" data-page="catalog"><b>▦</b><small>Katalog</small></button>
+  <button class="nav" data-page="favorites"><b>♡</b><small>Sevimli</small></button>
+  <button class="nav" data-page="profile"><b>◉</b><small>Profil</small></button>
+</nav>
+
+<div id="detailModal" class="modal">
+  <div class="backdrop" data-close="detail"></div>
+  <article class="sheet detail-sheet">
+    <button class="x" data-close="detail">×</button>
+    <div id="detailCover" class="detail-cover"></div>
+    <div class="detail-body">
+      <div class="detail-top">
+        <div id="detailPoster" class="detail-poster"></div>
+        <div class="detail-meta">
+          <small>ANIME</small>
+          <h1 id="detailTitle">—</h1>
+          <p id="detailInfo">—</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="favDetail" class="main-action">♡ Sevimliga</button>
+        <button id="shareDetail" class="sub-action">↗ Ulashish</button>
+      </div>
+      <p id="detailDesc" class="desc"></p>
+
+      <div class="sub-title">📚 Qismlar</div>
+      <div id="seasonTabs" class="season-tabs"></div>
+      <div id="episodeList"></div>
+
+      <div class="sub-title related-title">Sizga ham yoqishi mumkin</div>
+      <div id="relatedGrid" class="hrow"></div>
+    </div>
+  </article>
+</div>
+
+<div id="playerModal" class="modal">
+  <div class="backdrop" data-close="player"></div>
+  <article class="sheet player-sheet">
+    <button class="x" data-close="player">×</button>
+    <small>EPISODE</small>
+    <h2 id="playerTitle">—</h2>
+    <div id="playerBox" class="player-box"></div>
+  </article>
+</div>
+
+<div id="toast" class="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>
