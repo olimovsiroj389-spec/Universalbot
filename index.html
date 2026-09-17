@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07080b">
+<meta name="color-scheme" content="dark">
+<title>AnimeHub</title>
+<link rel="stylesheet" href="/style.css?v=5">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+<div class="bg"><i></i><i></i><i></i></div>
+<header class="topbar">
+  <button class="brand" data-page="home"><span class="brandmark">A</span><span><b>AnimeHub</b><small>O‘zbekcha anime katalogi</small></span></button>
+  <button class="round" id="profileBtn" aria-label="Profil"><span id="topAvatar">A</span></button>
+</header>
+<main id="app">
+  <section class="searchbar">
+    <span class="search-icon">⌕</span><input id="searchInput" type="search" placeholder="Anime nomini qidiring" autocomplete="off"><button id="clearBtn" class="clear hidden">×</button><button id="searchBtn">Qidirish</button>
+  </section>
+  <div id="offline" class="offline hidden">Server bilan aloqa yo‘q. Qayta urinib ko‘ring.</div>
+
+  <section id="homePage" class="page active">
+    <div id="hero" class="hero skeleton"></div>
+    <section id="continueSection" class="section hidden"><div class="section-head"><div><small>DAVOM ETTIRING</small><h2>Oxirgi ko‘rganlaringiz</h2></div><button data-page="history">Barchasi <b>›</b></button></div><div id="continueRail" class="rail"></div></section>
+    <section class="section"><div class="section-head"><div><small>ENG KO‘P KO‘RILGAN</small><h2>Mashhurlar</h2></div><button data-page="catalog">Barchasi <b>›</b></button></div><div id="popularRail" class="rail"></div></section>
+    <section class="section"><div class="section-head"><div><small>SO‘NGGI QO‘SHILGAN</small><h2>Yangilar</h2></div><button data-page="catalog">Ko‘proq <b>›</b></button></div><div id="newRail" class="rail"></div></section>
+    <section class="section"><div class="section-head"><div><small>KAYFIYATINGIZGA MOS</small><h2>Janrlar</h2></div><button data-page="catalog">Hammasi <b>›</b></button></div><div id="homeGenres" class="genres"></div></section>
+    <section class="pass-banner" data-page="pass"><div><small>ANIME PASS</small><h2>Ko‘proq anime.<br>Kamroq kutish.</h2><p>Premium qismlar va qo‘shimcha imkoniyatlar.</p><span>Passni ko‘rish <b>→</b></span></div><strong>✦</strong></section>
+  </section>
+
+  <section id="searchPage" class="page"><div class="page-head"><small>QIDIRUV</small><h1 id="searchTitle">Natijalar</h1><span id="resultCount"></span></div><div id="searchGrid" class="grid"></div></section>
+  <section id="catalogPage" class="page"><div class="page-head"><small>KATALOG</small><h1>Barcha animelar</h1></div><div id="genreChips" class="chips"></div><div id="catalogGrid" class="grid"></div></section>
+  <section id="favoritesPage" class="page"><div class="page-head"><small>SHAXSIY KUTUBXONA</small><h1>Sevimlilar</h1></div><div id="favoritesGrid" class="grid"></div></section>
+  <section id="historyPage" class="page"><div class="page-head"><small>DAVOM ETTIRISH</small><h1>Tarix</h1></div><div id="historyList" class="history"></div></section>
+  <section id="profilePage" class="page"><div id="profileCard"></div><div class="profile-menu"><button data-page="favorites"><span>♡</span><div><b>Sevimlilar</b><small>Saqlangan animelar</small></div><i>›</i></button><button data-page="history"><span>◷</span><div><b>Tarix</b><small>Ko‘rishni davom ettiring</small></div><i>›</i></button><button data-page="pass"><span>✦</span><div><b>Anime Pass</b><small>Premium imkoniyatlar</small></div><i>›</i></button><button id="shareProfile"><span>↗</span><div><b>Do‘stga ulashish</b><small>AnimeHub'ni yuborish</small></div><i>›</i></button></div></section>
+  <section id="passPage" class="page"><div class="pass-hero"><small>✦ ANIME PASS</small><h1>Tomoshani<br><em>chegarasiz</em> qiling.</h1><p>Premium qismlar, erta kirish va shaxsiy qulayliklar.</p><div id="passStatus" class="status">Yuklanmoqda…</div></div><div class="page-head compact"><small>TARIFLAR</small><h1>Pass muddatini tanlang</h1></div><div id="plans" class="plans"></div><div class="features"><article><b>01</b><h3>Premium</h3><p>Premium qismlarga kirish.</p></article><article><b>02</b><h3>Erta kirish</h3><p>Yangi qismlarni tezroq ko‘ring.</p></article><article><b>03</b><h3>Kutubxona</h3><p>Sevimli va tarix bir joyda.</p></article></div></section>
+  <section id="adminPage" class="page"><div class="page-head"><small>ADMIN</small><h1>Boshqaruv</h1></div><div id="adminStats" class="admin-stats"></div><div class="admin-actions"><button id="grantPassBtn">⭐ Userga Pass berish</button><button id="openBotAdmin">⚙️ Telegram Admin panel</button></div></section>
+</main>
+<nav class="bottom"><button data-page="home" class="active"><span>⌂</span><small>Bosh sahifa</small></button><button data-page="search"><span>⌕</span><small>Qidiruv</small></button><button data-page="catalog"><span>▦</span><small>Katalog</small></button><button data-page="favorites"><span>♡</span><small>Sevimli</small></button><button data-page="profile"><span>○</span><small>Profil</small></button></nav>
+
+<div id="detailModal" class="modal" aria-hidden="true"><div class="shade" data-close="detail"></div><article class="sheet detail"><button class="close" data-close="detail">×</button><div id="detailCover" class="cover"></div><div class="detail-body"><div class="detail-head"><div id="detailPoster" class="detail-poster"></div><div><small>ANIME</small><h2 id="detailTitle">—</h2><p id="detailMeta">—</p></div></div><div class="detail-buttons"><button id="favDetail" class="primary">♡ Sevimliga</button><button id="shareDetail" class="secondary">↗ Ulashish</button></div><p id="detailDesc" class="desc"></p><div class="label">FASLLAR</div><div id="seasonTabs" class="season-tabs"></div><div id="episodeList" class="episodes"></div><div class="label related-label">O‘XSHASH ANIMELAR</div><div id="relatedRail" class="rail"></div></div></article></div>
+<div id="playerModal" class="modal" aria-hidden="true"><div class="shade" data-close="player"></div><article class="sheet player"><button class="close" data-close="player">×</button><small>QISM</small><h2 id="playerTitle">—</h2><div id="playerBox" class="player-box"></div></article></div>
+<div id="toast" class="toast"></div>
+<script src="/app.js?v=5"></script>
+</body>
+</html>
